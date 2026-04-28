@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Idle Realm - Pi Network Testnet</title>
+
+  <script src="https://sdk.minepi.com/pi-sdk.js"></script>
+  <script>
+    const Pi = window.Pi;
+    Pi.init({ version: "2.0", sandbox: true });
+  </script>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #111;
+      color: #fff;
+      text-align: center;
+      padding: 30px;
+      margin: 0;
+    }
+
+    .container {
+      max-width: 500px;
+      margin: auto;
+    }
+
+    button {
+      padding: 14px;
+      font-size: 16px;
+      margin: 10px;
+      border-radius: 12px;
+      border: none;
+      width: 100%;
+      max-width: 280px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: opacity 0.2s;
+    }
+
+    #login { background: #ff4757; color: white; }
+    #buy { background: #5a6cff; color: white; }
+    #reward { background: #2ed573; color: white; }
+    #claim-reward { background: #f1c40f; color: black; }
+
+    button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 25px;
+      padding: 15px;
+      border-radius: 8px;
+      background: #222;
+      color: #00ffcc;
+      font-family: monospace;
+    }
+
+    .footer {
+      margin-top: 40px;
+      font-size: 14px;
+    }
+
+    .footer a {
+      color: #aaa;
+      margin: 0 10px;
+      text-decoration: none;
+    }
+
+    .footer a:hover { text-decoration: underline; }
+
+    #user-info {
+      margin-bottom: 20px;
+      font-weight: bold;
+      color: #ffda79;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Idle Realm</h1>
+  <p>Test Environment</p>
+
+  <div id="user-info">Non collegato</div>
+
+  <button id="login">COLLEGA PI WALLET</button>
+  <br />
+
+  <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
+  <br />
+
+  <button id="reward" disabled>ACQUISTA PREMIUM (0.01 π)</button>
+  <br />
+
+  <button id="claim-reward" disabled>RICEVI PREMIO TEST-PI (A2U)</button>
+
+  <div id="status">Stato: In attesa di login</div>
+
+  <div class="footer">
+    <a href="/privacy.html">Privacy Policy</a>
+    <a href="/terms.html">Terms of Service</a>
+  </div>
+</div>
+
+<script>
+let currentUser = null;
+let currentAccessToken = null;
+
+const userEl = document.getElementById("user-info");
+const loginBtn = document.getElementById("login");
+const buyBtn = document.getElementById("buy");
+const rewardBtn = document.getElementById("reward");
+const claimBtn = document.getElementById("claim-reward");
+const statusEl = document.getElementById("status");
+
+function setStatus(msg) {
+  statusEl.innerText = "Stato: " + msg;
+}
+
+async function postJson(url, body) {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    return await res.json();
+  } catch (e) {
+    console.error("Fetch error:", e);
+    return { ok: false, error: e.message };
+  }
+}
+
+async function onIncompletePaymentFound(payment) {
+  console.log("Pagamento incompleto trovato:", payment);
+  if (payment?.transaction?.txid) {
+    await postJson("/api/pi", {
+      action: "complete",
+      paymentId: payment.identifier,
+      txid: payment.transaction.txid
+    });
+    setStatus("Pagamento precedente recuperato ✅");
+  }
+}
+
+loginBtn.onclick = async () => {
+  try {
+    setStatus("Autenticazione in corso...");
+
+    const auth = await Pi.authenticate(
+      ["username", "payments", "wallet_address"],
+      onIncompletePaymentFound
+    );
+
+    currentUser = auth.user;
+    currentAccessToken = auth.accessToken;
+
+    await postJson("/api/auth", {
+      accessToken: currentAccessToken,
+      walletAddress: currentUser.wallet_address
+    });
+
+    userEl.innerText = "Benvenuto, " + currentUser.username;
+    buyBtn.disabled = false;
+    rewardBtn.disabled = false;
+    claimBtn.disabled = false;
+    loginBtn.style.display = "none";
+    
+    setStatus("Login effettuato con successo");
+  } catch (e) {
+    console.error(e);
+    setStatus("Errore durante il login");
+  }
+};
+
+async function handlePayment(amount, memo, itemTag) {
+  try {
+    setStatus("Inizializzazione pagamento...");
+    
+    Pi.createPayment({
+      amount: amount,
+      memo: memo,
+      metadata: { item: itemTag }
+    }, {
+      onReadyForServerApproval: async (paymentId) => {
+        setStatus("Approvazione server...");
+        await postJson("/api/pi", { action: "approve", paymentId });
+      },
+      onReadyForServerCompletion: async (paymentId, txid) => {
+        setStatus("Completamento transazione...");
+        await postJson("/api/pi", { action: "complete", paymentId, txid });
+        setStatus(`Acquisto ${itemTag} completato! ✅`);
+      },
+      onCancel: () => setStatus("Pagamento annullato"),
+      onError: (err) => {
+        console.error(err);
+        setStatus("Errore pagamento: " + err.message);
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    setStatus("Errore tecnico nel pagamento");
+  }
+}
+
+// Logica per il pulsante App-to-User (A2U)
+claimBtn.onclick = async () => {
+  if (!currentUser) return;
+  
+  setStatus("Richiesta premio (A2U) in corso...");
+  claimBtn.disabled = true;
+
+  const res = await postJson("/api/pi", { 
+    action: "claim_reward", 
+    uid: currentUser.uid 
+  });
+
+  if (res.ok) {
+    setStatus("Test-Pi inviati con successo! ✅");
+  } else {
+    setStatus("Errore A2U: " + (res.data?.error || res.error || "Riprova"));
+    claimBtn.disabled = false;
+  }
+};
+
+buyBtn.onclick = () => handlePayment(0.01, "Acquisto Item Idle Realm", "test_item");
+rewardBtn.onclick = () => handlePayment(0.01, "Attivazione Status Premium", "premium_test");
+</script>
+
+</body>
+</html>
