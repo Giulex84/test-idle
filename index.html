@@ -6,37 +6,40 @@
   <title>Idle Realm - Pi Network</title>
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <style>
-    body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
-    .container { max-width: 400px; margin: auto; }
-    button { padding: 15px; margin: 10px; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+    .container { max-width: 400px; margin: auto; border: 1px solid #333; padding: 20px; border-radius: 15px; background: #1a1a1a; }
+    h1 { color: #f1c40f; margin-bottom: 5px; }
+    button { padding: 15px; margin: 10px 0; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
     #login { background: #ff4757; color: white; }
     #buy { background: #5a6cff; color: white; }
     #claim-reward { background: #f1c40f; color: black; }
-    button:disabled { opacity: 0.3; }
-    #status { margin-top: 20px; padding: 10px; background: #222; color: #00ffcc; font-family: monospace; font-size: 13px; }
-    #user-info { margin-bottom: 15px; color: #ffda79; }
+    button:disabled { opacity: 0.3; cursor: not-allowed; }
+    #status { margin-top: 20px; padding: 15px; background: #000; color: #00ffcc; font-family: monospace; font-size: 13px; border-radius: 8px; border: 1px solid #00ffcc; min-height: 20px; }
+    #user-info { margin-bottom: 20px; color: #ffda79; font-weight: bold; }
   </style>
 </head>
 <body>
 <div class="container">
   <h1>Idle Realm</h1>
-  <div id="user-info">Effettua il login</div>
+  <div id="user-info">Effettua il login per iniziare</div>
+  
   <button id="login">COLLEGA PI WALLET</button>
   <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
   <button id="claim-reward" disabled>RICEVI PREMIO (A2U)</button>
-  <div id="status">In attesa...</div>
+  
+  <div id="status">In attesa di azione...</div>
 </div>
 
 <script>
 const Pi = window.Pi;
-// Inizializzazione immediata
-try {
-    Pi.init({ version: "2.0", sandbox: true });
-} catch(e) {
-    console.error("Errore init:", e);
-}
-
 let currentUser = null;
+
+// Inizializzazione SDK (sandbox: false per wallet reali)
+try {
+    Pi.init({ version: "2.0", sandbox: false });
+} catch(e) {
+    console.error("Errore init SDK:", e);
+}
 
 const statusEl = document.getElementById("status");
 const userEl = document.getElementById("user-info");
@@ -44,8 +47,12 @@ const loginBtn = document.getElementById("login");
 const buyBtn = document.getElementById("buy");
 const claimBtn = document.getElementById("claim-reward");
 
-function setStatus(msg) { statusEl.innerText = "Stato: " + msg; }
+function setStatus(msg) { 
+    console.log("Status update:", msg);
+    statusEl.innerText = "Stato: " + msg; 
+}
 
+// Funzione universale per le chiamate API
 async function postJson(url, body) {
   try {
     const res = await fetch(url, {
@@ -55,54 +62,74 @@ async function postJson(url, body) {
     });
     return await res.json();
   } catch (e) {
-    return { ok: false, error: e.message };
+    return { error: "Errore di connessione al server" };
   }
 }
 
 loginBtn.onclick = async () => {
   try {
-    setStatus("Autenticazione...");
+    setStatus("Autenticazione in corso...");
     const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
+       // Callback per pagamenti incompleti
        postJson("/api/complete", { paymentId: payment.identifier, txid: payment.transaction.txid });
     });
 
     currentUser = auth.user;
-    // Chiamata alla tua function auth.js (quella senza database)
+    
+    // Notifica il login al server
     await postJson("/api/auth", { user: currentUser });
 
     userEl.innerText = "Ciao, " + currentUser.username;
     loginBtn.style.display = "none";
     buyBtn.disabled = false;
     claimBtn.disabled = false;
-    setStatus("Login OK");
+    setStatus("Login effettuato con successo! ✅");
   } catch (e) {
-    setStatus("Errore: " + e.message);
+    setStatus("Errore Login: " + e.message);
   }
 };
 
 buyBtn.onclick = () => {
+  setStatus("Preparazione acquisto...");
   Pi.createPayment({
     amount: 0.01,
-    memo: "Test Purchase",
-    metadata: { item: "test_01" }
+    memo: "Acquisto Item Idle Realm",
+    metadata: { item: "test_item_01" }
   }, {
     onReadyForServerApproval: (id) => postJson("/api/approve", { paymentId: id }),
     onReadyForServerCompletion: (id, txid) => {
         postJson("/api/complete", { paymentId: id, txid: txid });
-        setStatus("Acquisto completato! ✅");
+        setStatus("Acquisto completato con successo! ✅");
     },
-    onCancel: () => setStatus("Annullato"),
-    onError: (err) => setStatus("Errore: " + err.message)
+    onCancel: () => setStatus("Pagamento annullato dall'utente"),
+    onError: (err) => setStatus("Errore Pagamento: " + err.message)
   });
 };
 
 claimBtn.onclick = async () => {
   if (!currentUser) return;
-  setStatus("Invio premio...");
-  // Chiamata alla tua function claim.js
+  
+  setStatus("Richiesta premio (A2U) inviata...");
+  claimBtn.disabled = true; // Evita doppi click compulsivi
+
   const res = await postJson("/api/claim", { uid: currentUser.uid });
-  if (res.ok) setStatus("Premio inviato! ✅");
-  else setStatus("Errore: " + (res.data?.error || "Riprova"));
+
+  // LOGICA DI CONTROLLO RISPOSTA
+  if (res.identifier || res.id) { 
+    setStatus("Premio inviato! Controlla il wallet ✅");
+  } else if (res.error || res.message) {
+    const errorMsg = res.error || res.message;
+    // Gestione specifica per il blocco blockchain
+    if (errorMsg.includes("ongoing")) {
+       setStatus("Errore: Blockchain occupata. Attendi 2 minuti e riprova.");
+    } else {
+       setStatus("Errore: " + errorMsg);
+    }
+    claimBtn.disabled = false; // Riabilita se c'è errore
+  } else {
+    setStatus("Risposta inattesa dal server. Riprova.");
+    claimBtn.disabled = false;
+  }
 };
 </script>
 </body>
