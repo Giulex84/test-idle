@@ -8,6 +8,7 @@
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <script>
     const Pi = window.Pi;
+    // Note: sandbox: true è corretto per i test su Pi Browser
     Pi.init({ version: "2.0", sandbox: true });
   </script>
 
@@ -56,6 +57,7 @@
       background: #222;
       color: #00ffcc;
       font-family: monospace;
+      word-wrap: break-word;
     }
 
     .footer {
@@ -82,7 +84,7 @@
 
 <div class="container">
   <h1>Idle Realm</h1>
-  <p>Test Environment</p>
+  <p>Test Environment (Pi Network)</p>
 
   <div id="user-info">Non collegato</div>
 
@@ -120,6 +122,7 @@ function setStatus(msg) {
   statusEl.innerText = "Stato: " + msg;
 }
 
+// Funzione helper per parlare con le Cloudflare Functions
 async function postJson(url, body) {
   try {
     const res = await fetch(url, {
@@ -127,6 +130,7 @@ async function postJson(url, body) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
     return await res.json();
   } catch (e) {
     console.error("Fetch error:", e);
@@ -134,21 +138,25 @@ async function postJson(url, body) {
   }
 }
 
+// Gestione pagamenti interrotti (molto importante per Pi Network)
 async function onIncompletePaymentFound(payment) {
-  console.log("Pagamento incompleto trovato:", payment);
+  setStatus("Recupero pagamento incompleto...");
+  console.log("Incomplete payment:", payment);
+  
+  // Se il pagamento è già sulla blockchain, lo completiamo sul nostro server
   if (payment?.transaction?.txid) {
-    await postJson("/api/pi", {
-      action: "complete",
+    await postJson("/api/complete", {
       paymentId: payment.identifier,
       txid: payment.transaction.txid
     });
-    setStatus("Pagamento precedente recuperato ✅");
+    setStatus("Pagamento precedente completato con successo ✅");
   }
 }
 
+// 1. Autenticazione
 loginBtn.onclick = async () => {
   try {
-    setStatus("Autenticazione in corso...");
+    setStatus("Richiesta autorizzazioni...");
 
     const auth = await Pi.authenticate(
       ["username", "payments", "wallet_address"],
@@ -158,9 +166,10 @@ loginBtn.onclick = async () => {
     currentUser = auth.user;
     currentAccessToken = auth.accessToken;
 
+    // Comunica al tuo backend i dati dell'utente
     await postJson("/api/auth", {
       accessToken: currentAccessToken,
-      walletAddress: currentUser.wallet_address
+      user: currentUser
     });
 
     userEl.innerText = "Benvenuto, " + currentUser.username;
@@ -169,16 +178,17 @@ loginBtn.onclick = async () => {
     claimBtn.disabled = false;
     loginBtn.style.display = "none";
     
-    setStatus("Login effettuato con successo");
+    setStatus("Login effettuato");
   } catch (e) {
     console.error(e);
-    setStatus("Errore durante il login");
+    setStatus("Errore login: " + e.message);
   }
 };
 
+// 2. Logica Pagamento User-to-App (U2A)
 async function handlePayment(amount, memo, itemTag) {
   try {
-    setStatus("Inizializzazione pagamento...");
+    setStatus("Apertura Wallet Pi...");
     
     Pi.createPayment({
       amount: amount,
@@ -186,48 +196,50 @@ async function handlePayment(amount, memo, itemTag) {
       metadata: { item: itemTag }
     }, {
       onReadyForServerApproval: async (paymentId) => {
-        setStatus("Approvazione server...");
-        await postJson("/api/pi", { action: "approve", paymentId });
+        setStatus("Approvazione in corso...");
+        // Chiama la tua Cloudflare Function /functions/api/approve.js
+        await postJson("/api/approve", { paymentId });
       },
       onReadyForServerCompletion: async (paymentId, txid) => {
-        setStatus("Completamento transazione...");
-        await postJson("/api/pi", { action: "complete", paymentId, txid });
+        setStatus("Verifica transazione...");
+        // Chiama la tua Cloudflare Function /functions/api/complete.js
+        await postJson("/api/complete", { paymentId, txid });
         setStatus(`Acquisto ${itemTag} completato! ✅`);
       },
-      onCancel: () => setStatus("Pagamento annullato"),
+      onCancel: () => setStatus("Pagamento annullato dall'utente"),
       onError: (err) => {
         console.error(err);
-        setStatus("Errore pagamento: " + err.message);
+        setStatus("Errore: " + (err.message || "Pagamento fallito"));
       }
     });
   } catch (e) {
     console.error(e);
-    setStatus("Errore tecnico nel pagamento");
+    setStatus("Errore inizializzazione SDK");
   }
 }
 
-// Logica per il pulsante App-to-User (A2U)
+// 3. Logica App-to-User (A2U)
 claimBtn.onclick = async () => {
   if (!currentUser) return;
   
-  setStatus("Richiesta premio (A2U) in corso...");
+  setStatus("Richiesta invio premio...");
   claimBtn.disabled = true;
 
-  const res = await postJson("/api/pi", { 
-    action: "claim_reward", 
+  // Chiama la tua Cloudflare Function /functions/api/claim.js
+  const res = await postJson("/api/claim", { 
     uid: currentUser.uid 
   });
 
   if (res.ok) {
-    setStatus("Test-Pi inviati con successo! ✅");
+    setStatus("Transazione A2U inviata! Controlla il wallet. ✅");
   } else {
-    setStatus("Errore A2U: " + (res.data?.error || res.error || "Riprova"));
+    setStatus("Errore A2U: " + (res.error || "Riprova"));
     claimBtn.disabled = false;
   }
 };
 
 buyBtn.onclick = () => handlePayment(0.01, "Acquisto Item Idle Realm", "test_item");
-rewardBtn.onclick = () => handlePayment(0.01, "Attivazione Status Premium", "premium_test");
+rewardBtn.onclick = () => handlePayment(0.01, "Status Premium", "premium_test");
 </script>
 
 </body>
