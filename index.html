@@ -3,127 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Idle Realm - Pi Network Testnet</title>
-
+  <title>Idle Realm - Pi Network</title>
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
-  <script>
-    const Pi = window.Pi;
-    // Note: sandbox: true è corretto per i test su Pi Browser
-    Pi.init({ version: "2.0", sandbox: true });
-  </script>
-
   <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #111;
-      color: #fff;
-      text-align: center;
-      padding: 30px;
-      margin: 0;
-    }
-
-    .container {
-      max-width: 500px;
-      margin: auto;
-    }
-
-    button {
-      padding: 14px;
-      font-size: 16px;
-      margin: 10px;
-      border-radius: 12px;
-      border: none;
-      width: 100%;
-      max-width: 280px;
-      cursor: pointer;
-      font-weight: bold;
-      transition: opacity 0.2s;
-    }
-
+    body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+    .container { max-width: 400px; margin: auto; }
+    button { padding: 15px; margin: 10px; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
     #login { background: #ff4757; color: white; }
     #buy { background: #5a6cff; color: white; }
-    #reward { background: #2ed573; color: white; }
     #claim-reward { background: #f1c40f; color: black; }
-
-    button:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    #status {
-      margin-top: 25px;
-      padding: 15px;
-      border-radius: 8px;
-      background: #222;
-      color: #00ffcc;
-      font-family: monospace;
-      word-wrap: break-word;
-      min-height: 50px;
-    }
-
-    .footer {
-      margin-top: 40px;
-      font-size: 14px;
-    }
-
-    .footer a {
-      color: #aaa;
-      margin: 0 10px;
-      text-decoration: none;
-    }
-
-    .footer a:hover { text-decoration: underline; }
-
-    #user-info {
-      margin-bottom: 20px;
-      font-weight: bold;
-      color: #ffda79;
-    }
+    button:disabled { opacity: 0.3; }
+    #status { margin-top: 20px; padding: 10px; background: #222; color: #00ffcc; font-family: monospace; font-size: 13px; }
+    #user-info { margin-bottom: 15px; color: #ffda79; }
   </style>
 </head>
 <body>
-
 <div class="container">
   <h1>Idle Realm</h1>
-  <p>Test Environment (Pi Network)</p>
-
-  <div id="user-info">Non collegato</div>
-
+  <div id="user-info">Effettua il login</div>
   <button id="login">COLLEGA PI WALLET</button>
-  <br />
-
   <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
-  <br />
-
-  <button id="reward" disabled>ACQUISTA PREMIUM (0.01 π)</button>
-  <br />
-
-  <button id="claim-reward" disabled>RICEVI PREMIO TEST-PI (A2U)</button>
-
-  <div id="status">Stato: In attesa di login</div>
-
-  <div class="footer">
-    <a href="/privacy.html">Privacy Policy</a>
-    <a href="/terms.html">Terms of Service</a>
-  </div>
+  <button id="claim-reward" disabled>RICEVI PREMIO (A2U)</button>
+  <div id="status">In attesa...</div>
 </div>
 
 <script>
-let currentUser = null;
-let currentAccessToken = null;
+const Pi = window.Pi;
+// Inizializzazione immediata
+try {
+    Pi.init({ version: "2.0", sandbox: true });
+} catch(e) {
+    console.error("Errore init:", e);
+}
 
+let currentUser = null;
+
+const statusEl = document.getElementById("status");
 const userEl = document.getElementById("user-info");
 const loginBtn = document.getElementById("login");
 const buyBtn = document.getElementById("buy");
-const rewardBtn = document.getElementById("reward");
 const claimBtn = document.getElementById("claim-reward");
-const statusEl = document.getElementById("status");
 
-function setStatus(msg) {
-  statusEl.innerText = "Stato: " + msg;
-}
+function setStatus(msg) { statusEl.innerText = "Stato: " + msg; }
 
-// Funzione helper aggiornata per leggere errori dettagliati dal server
 async function postJson(url, body) {
   try {
     const res = await fetch(url, {
@@ -131,120 +53,57 @@ async function postJson(url, body) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    
-    const data = await res.json();
-    
-    if (!res.ok) {
-      // Se il server risponde con errore (es. 400), cerchiamo il messaggio nel JSON
-      const errorDetail = data.data?.error_description || data.error || res.status;
-      throw new Error(errorDetail);
-    }
-    
-    return data;
+    return await res.json();
   } catch (e) {
-    console.error("Fetch error:", e);
     return { ok: false, error: e.message };
   }
 }
 
-async function onIncompletePaymentFound(payment) {
-  setStatus("Recupero pagamento incompleto...");
-  if (payment?.transaction?.txid) {
-    await postJson("/api/complete", {
-      paymentId: payment.identifier,
-      txid: payment.transaction.txid
-    });
-    setStatus("Pagamento precedente completato con successo ✅");
-  }
-}
-
-// 1. Autenticazione
 loginBtn.onclick = async () => {
   try {
-    setStatus("Richiesta autorizzazioni...");
-
-    const auth = await Pi.authenticate(
-      ["username", "payments", "wallet_address"],
-      onIncompletePaymentFound
-    );
+    setStatus("Autenticazione...");
+    const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
+       postJson("/api/complete", { paymentId: payment.identifier, txid: payment.transaction.txid });
+    });
 
     currentUser = auth.user;
-    currentAccessToken = auth.accessToken;
+    // Chiamata alla tua function auth.js (quella senza database)
+    await postJson("/api/auth", { user: currentUser });
 
-    await postJson("/api/auth", {
-      accessToken: currentAccessToken,
-      user: currentUser
-    });
-
-    userEl.innerText = "Benvenuto, " + currentUser.username;
-    buyBtn.disabled = false;
-    rewardBtn.disabled = false;
-    claimBtn.disabled = false;
+    userEl.innerText = "Ciao, " + currentUser.username;
     loginBtn.style.display = "none";
-    
-    setStatus("Login effettuato");
-  } catch (e) {
-    console.error(e);
-    setStatus("Errore login: " + e.message);
-  }
-};
-
-// 2. Logica Pagamento User-to-App (U2A)
-async function handlePayment(amount, memo, itemTag) {
-  try {
-    setStatus("Apertura Wallet Pi...");
-    
-    Pi.createPayment({
-      amount: amount,
-      memo: memo,
-      metadata: { item: itemTag }
-    }, {
-      onReadyForServerApproval: async (paymentId) => {
-        setStatus("Approvazione in corso...");
-        await postJson("/api/approve", { paymentId });
-      },
-      onReadyForServerCompletion: async (paymentId, txid) => {
-        setStatus("Verifica transazione...");
-        await postJson("/api/complete", { paymentId, txid });
-        setStatus(`Acquisto ${itemTag} completato! ✅`);
-      },
-      onCancel: () => setStatus("Pagamento annullato dall'utente"),
-      onError: (err) => {
-        setStatus("Errore: " + (err.message || "Pagamento fallito"));
-      }
-    });
-  } catch (e) {
-    setStatus("Errore inizializzazione SDK");
-  }
-}
-
-// 3. Logica App-to-User (A2U) - CORRETTA
-claimBtn.onclick = async () => {
-  if (!currentUser || !currentUser.uid) {
-    setStatus("Errore: UID non trovato. Rifai il login.");
-    return;
-  }
-  
-  setStatus("Richiesta invio premio...");
-  claimBtn.disabled = true;
-
-  // IMPORTANTE: Assicurati che su GitHub il file si chiami claim.js
-  const res = await postJson("/api/claim", { 
-    uid: currentUser.uid 
-  });
-
-  if (res.ok) {
-    setStatus("Premio inviato! Controlla il tuo Wallet. ✅");
-  } else {
-    // Ora mostrerà il motivo reale dell'errore 400
-    setStatus("Errore A2U: " + res.error);
+    buyBtn.disabled = false;
     claimBtn.disabled = false;
+    setStatus("Login OK");
+  } catch (e) {
+    setStatus("Errore: " + e.message);
   }
 };
 
-buyBtn.onclick = () => handlePayment(0.01, "Acquisto Item Idle Realm", "test_item");
-rewardBtn.onclick = () => handlePayment(0.01, "Status Premium", "premium_test");
-</script>
+buyBtn.onclick = () => {
+  Pi.createPayment({
+    amount: 0.01,
+    memo: "Test Purchase",
+    metadata: { item: "test_01" }
+  }, {
+    onReadyForServerApproval: (id) => postJson("/api/approve", { paymentId: id }),
+    onReadyForServerCompletion: (id, txid) => {
+        postJson("/api/complete", { paymentId: id, txid: txid });
+        setStatus("Acquisto completato! ✅");
+    },
+    onCancel: () => setStatus("Annullato"),
+    onError: (err) => setStatus("Errore: " + err.message)
+  });
+};
 
+claimBtn.onclick = async () => {
+  if (!currentUser) return;
+  setStatus("Invio premio...");
+  // Chiamata alla tua function claim.js
+  const res = await postJson("/api/claim", { uid: currentUser.uid });
+  if (res.ok) setStatus("Premio inviato! ✅");
+  else setStatus("Errore: " + (res.data?.error || "Riprova"));
+};
+</script>
 </body>
 </html>
