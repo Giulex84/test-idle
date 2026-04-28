@@ -58,6 +58,7 @@
       color: #00ffcc;
       font-family: monospace;
       word-wrap: break-word;
+      min-height: 50px;
     }
 
     .footer {
@@ -122,7 +123,7 @@ function setStatus(msg) {
   statusEl.innerText = "Stato: " + msg;
 }
 
-// Funzione helper per parlare con le Cloudflare Functions
+// Funzione helper aggiornata per leggere errori dettagliati dal server
 async function postJson(url, body) {
   try {
     const res = await fetch(url, {
@@ -130,20 +131,24 @@ async function postJson(url, body) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
-    if (!res.ok) throw new Error(`Server error: ${res.status}`);
-    return await res.json();
+    
+    const data = await res.json();
+    
+    if (!res.ok) {
+      // Se il server risponde con errore (es. 400), cerchiamo il messaggio nel JSON
+      const errorDetail = data.data?.error_description || data.error || res.status;
+      throw new Error(errorDetail);
+    }
+    
+    return data;
   } catch (e) {
     console.error("Fetch error:", e);
     return { ok: false, error: e.message };
   }
 }
 
-// Gestione pagamenti interrotti (molto importante per Pi Network)
 async function onIncompletePaymentFound(payment) {
   setStatus("Recupero pagamento incompleto...");
-  console.log("Incomplete payment:", payment);
-  
-  // Se il pagamento è già sulla blockchain, lo completiamo sul nostro server
   if (payment?.transaction?.txid) {
     await postJson("/api/complete", {
       paymentId: payment.identifier,
@@ -166,7 +171,6 @@ loginBtn.onclick = async () => {
     currentUser = auth.user;
     currentAccessToken = auth.accessToken;
 
-    // Comunica al tuo backend i dati dell'utente
     await postJson("/api/auth", {
       accessToken: currentAccessToken,
       user: currentUser
@@ -197,43 +201,43 @@ async function handlePayment(amount, memo, itemTag) {
     }, {
       onReadyForServerApproval: async (paymentId) => {
         setStatus("Approvazione in corso...");
-        // Chiama la tua Cloudflare Function /functions/api/approve.js
         await postJson("/api/approve", { paymentId });
       },
       onReadyForServerCompletion: async (paymentId, txid) => {
         setStatus("Verifica transazione...");
-        // Chiama la tua Cloudflare Function /functions/api/complete.js
         await postJson("/api/complete", { paymentId, txid });
         setStatus(`Acquisto ${itemTag} completato! ✅`);
       },
       onCancel: () => setStatus("Pagamento annullato dall'utente"),
       onError: (err) => {
-        console.error(err);
         setStatus("Errore: " + (err.message || "Pagamento fallito"));
       }
     });
   } catch (e) {
-    console.error(e);
     setStatus("Errore inizializzazione SDK");
   }
 }
 
-// 3. Logica App-to-User (A2U)
+// 3. Logica App-to-User (A2U) - CORRETTA
 claimBtn.onclick = async () => {
-  if (!currentUser) return;
+  if (!currentUser || !currentUser.uid) {
+    setStatus("Errore: UID non trovato. Rifai il login.");
+    return;
+  }
   
   setStatus("Richiesta invio premio...");
   claimBtn.disabled = true;
 
-  // Chiama la tua Cloudflare Function /functions/api/claim.js
+  // IMPORTANTE: Assicurati che su GitHub il file si chiami claim.js
   const res = await postJson("/api/claim", { 
     uid: currentUser.uid 
   });
 
   if (res.ok) {
-    setStatus("Transazione A2U inviata! Controlla il wallet. ✅");
+    setStatus("Premio inviato! Controlla il tuo Wallet. ✅");
   } else {
-    setStatus("Errore A2U: " + (res.error || "Riprova"));
+    // Ora mostrerà il motivo reale dell'errore 400
+    setStatus("Errore A2U: " + res.error);
     claimBtn.disabled = false;
   }
 };
