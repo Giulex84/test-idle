@@ -54,8 +54,8 @@ async function callApi(endpoint, method = "POST", body = null) {
 
 document.getElementById("login").onclick = async () => {
   try {
-    const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
-       callApi("complete", "POST", { paymentId: payment.identifier, txid: payment.transaction.txid });
+    const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (p) => {
+       callApi("complete", "POST", { paymentId: p.identifier, txid: p.transaction.txid });
     });
     currentUser = auth.user;
     userToken = auth.accessToken; 
@@ -75,9 +75,14 @@ document.getElementById("claim-reward").onclick = async () => {
 };
 
 document.getElementById("check-status").onclick = async () => {
-  setStatus("Controllo pagamenti sospesi...");
-  const res = await callApi("incomplete", "GET");
-  setStatus("Risposta Pi: " + JSON.stringify(res));
+  setStatus("Controllo sospesi...");
+  // Nota: qui usiamo GET come definito nella funzione
+  const res = await fetch("/api/incomplete", {
+      method: "GET",
+      headers: { "Authorization-User": userToken }
+  });
+  const data = await res.json();
+  setStatus("Risposta Pi: " + JSON.stringify(data));
 };
 </script>
 </body>
