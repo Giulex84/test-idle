@@ -1,23 +1,22 @@
 export async function onRequest(context) {
-  const apiKey = context.env.PI_API_KEY; // La tua Server Key (inizia con "Key...")
-  const authHeader = context.request.headers.get("Authorization");
+  const apiKey = context.env.PI_API_KEY; // Assicurati di aver aggiunto "Key " davanti su Cloudflare!
   
-  // Estrazione pulita del Bearer Token dell'utente
-  const userToken = authHeader && authHeader.startsWith("Bearer ") 
-    ? authHeader.substring(7) 
-    : null;
+  // Legge il token dal nuovo header personalizzato
+  const userToken = context.request.headers.get("x-pi-token"); 
 
   if (!userToken) {
-    return new Response(JSON.stringify({ error: "Manca lo User Access Token" }), { status: 401 });
+    return new Response(JSON.stringify({ error: "Manca lo User Access Token" }), { 
+      status: 401,
+      headers: { "Content-Type": "application/json" }
+    });
   }
 
   try {
-    // Chiamata per i pagamenti incompleti
     const response = await fetch("https://api.minepi.com/v2/payments/incomplete", {
       method: "GET",
       headers: {
-        "Authorization": `Key ${apiKey}`, // Qui si usa la Server Key
-        "accessToken": userToken         // Qui si passa il token utente
+        "Authorization": apiKey, 
+        "accessToken": userToken 
       }
     });
 
