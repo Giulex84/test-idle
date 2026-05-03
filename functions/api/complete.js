@@ -1,18 +1,20 @@
 export async function onRequestPost(context) {
-  const { paymentId, txid } = await context.request.json();
-  const apiKey = context.env.PI_API_KEY;
+  try {
+    const { paymentId, txid } = await context.request.json();
+    const apiKey = context.env.PI_API_KEY;
 
-  // Comunichiamo al server di Pi che il pagamento è sulla blockchain
-  const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/complete`, {
-    method: 'POST',
-    headers: { 
-        'Authorization': `Key ${apiKey}`,
-        'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ txid })
-  });
+    const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/complete`, {
+      method: 'POST',
+      headers: { 
+          'Authorization': `Key ${apiKey}`,
+          'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ txid })
+    });
 
-  return new Response(JSON.stringify(await response.json()), {
-    headers: { 'Content-Type': 'application/json' }
-  });
+    const data = await response.json();
+    return new Response(JSON.stringify(data), { status: response.status });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  }
 }
