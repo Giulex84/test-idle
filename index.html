@@ -14,19 +14,21 @@
     #login { background: #ff4757; color: white; }
     #buy { background: #5a6cff; color: white; }
     #claim-reward { background: #f1c40f; color: black; }
+    #check-status { background: #2ecc71; color: white; font-size: 11px; padding: 8px; }
     button:disabled { opacity: 0.3; cursor: not-allowed; }
-    #status { margin-top: 20px; padding: 15px; background: #000; color: #00ffcc; font-family: monospace; font-size: 13px; border-radius: 8px; border: 1px solid #00ffcc; min-height: 40px; word-break: break-all; }
+    #status { margin-top: 20px; padding: 15px; background: #000; color: #00ffcc; font-family: monospace; font-size: 12px; border-radius: 8px; border: 1px solid #00ffcc; min-height: 40px; word-break: break-all; text-align: left; }
   </style>
 </head>
 <body>
 
 <div class="container">
   <h1>Idle Realm</h1>
-  <div id="user-info">Effettua il login per iniziare</div>
+  <div id="user-info">Effettua il login</div>
   
   <button id="login">COLLEGA PI WALLET</button>
   <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
   <button id="claim-reward" disabled>RICEVI PREMIO (A2U)</button>
+  <button id="check-status" disabled>CONTROLLA PAGAMENTI SOSPESI</button>
   
   <div id="status">In attesa di azione...</div>
 </div>
@@ -36,11 +38,10 @@ const Pi = window.Pi;
 let currentUser = null;
 let userToken = null;
 
-// Inizializzazione SDK
 try {
     Pi.init({ version: "2.0", sandbox: false });
 } catch(e) {
-    console.error("Errore init SDK:", e);
+    console.error("SDK Init Error:", e);
 }
 
 const statusEl = document.getElementById("status");
@@ -48,97 +49,106 @@ const userEl = document.getElementById("user-info");
 const loginBtn = document.getElementById("login");
 const buyBtn = document.getElementById("buy");
 const claimBtn = document.getElementById("claim-reward");
+const checkBtn = document.getElementById("check-status");
 
 function setStatus(msg) { 
-    console.log("Status update:", msg);
-    statusEl.innerText = "Stato: " + msg; 
+    console.log("Status:", msg);
+    statusEl.innerText = "SISTEMA: " + msg; 
 }
 
-// Funzione universale per inviare dati al tuo backend Cloudflare
-async function postJson(url, body = {}) {
+// Chiamata universale al backend Cloudflare
+async function callApi(endpoint, method = "POST", body = null) {
+  const options = {
+    method: method,
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization-User": userToken // Header necessario per evitare 401
+    }
+  };
+  if (body) options.body = JSON.stringify(body);
+
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization-User": userToken // Invia il token per sbloccare le API
-      },
-      body: JSON.stringify(body)
-    });
+    const res = await fetch("/api/" + endpoint, options);
     return await res.json();
   } catch (e) {
-    return { error: "Errore di connessione al server" };
+    return { error: "Errore di rete" };
   }
 }
 
-// Gestione Login
+// 1. LOGIN
 loginBtn.onclick = async () => {
   try {
-    setStatus("Autenticazione in corso...");
+    setStatus("Autenticazione...");
     const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
-       // Callback automatica per completare pagamenti interrotti
-       postJson("/api/complete", { paymentId: payment.identifier, txid: payment.transaction.txid });
+       callApi("complete", "POST", { paymentId: payment.identifier, txid: payment.transaction.txid });
     });
 
     currentUser = auth.user;
-    userToken = auth.accessToken; // Salva il token fondamentale
+    userToken = auth.accessToken; 
     
-    // Notifica il login al tuo server
-    await postJson("/api/auth", { user: currentUser });
+    await callApi("auth", "POST", { user: currentUser });
 
     userEl.innerText = "Ciao, " + currentUser.username;
     loginBtn.style.display = "none";
     buyBtn.disabled = false;
     claimBtn.disabled = false;
-    setStatus("Login effettuato! Benvenuto. ✅");
+    checkBtn.disabled = false;
+    setStatus("Login effettuato! ✅");
   } catch (e) {
     setStatus("Errore Login: " + e.message);
   }
 };
 
-// Funzione Acquisto (User-to-App)
+// 2. ACQUISTO (USER-TO-APP)
 buyBtn.onclick = () => {
-  setStatus("Preparazione acquisto...");
+  setStatus("Avvio pagamento...");
   Pi.createPayment({
     amount: 0.01,
-    memo: "Acquisto Item Idle Realm",
-    metadata: { item: "test_item_01" }
+    memo: "Test acquisto",
+    metadata: { type: "item_test" }
   }, {
-    onReadyForServerApproval: (id) => postJson("/api/approve", { paymentId: id }),
+    onReadyForServerApproval: (id) => callApi("approve", "POST", { paymentId: id }),
     onReadyForServerCompletion: (id, txid) => {
-        postJson("/api/complete", { paymentId: id, txid: txid });
+        callApi("complete", "POST", { paymentId: id, txid: txid });
         setStatus("Acquisto completato! ✅");
     },
-    onCancel: () => setStatus("Pagamento annullato."),
-    onError: (err) => setStatus("Errore Pagamento: " + err.message)
+    onCancel: () => setStatus("Annullato."),
+    onError: (err) => setStatus("Errore: " + err.message)
   });
 };
 
-// Funzione Premio (App-to-User) con gestione "Ongoing"
+// 3. PREMIO (APP-TO-USER)
 claimBtn.onclick = async () => {
-  if (!currentUser) return;
-  
-  setStatus("Richiesta premio inviata...");
+  setStatus("Richiesta premio A2U...");
   claimBtn.disabled = true;
 
-  const res = await postJson("/api/claim", { uid: currentUser.uid });
+  const res = await callApi("claim", "POST", { uid: currentUser.uid });
 
   if (res.success) { 
-    setStatus("Premio inviato! Controlla il wallet ✅");
-  } else if (res.message && res.message.includes("ongoing")) {
-    setStatus("C'è un pagamento sospeso. Provo a sbloccarlo...");
-    
-    // Tenta di pulire la coda chiamando incomplete
-    const check = await fetch("/api/incomplete", {
-        headers: { "Authorization-User": userToken }
-    });
-    const incompleteData = await check.json();
-    
-    setStatus("Coda controllata. Attendi 2 minuti e riprova.");
-    claimBtn.disabled = false;
+    setStatus("Premio inviato con successo! ✅");
   } else {
-    setStatus("Errore: " + (res.error || "Riprova tra poco"));
+    // Gestione specifica dell'errore "ongoing"
+    const errorMsg = JSON.stringify(res);
+    if (errorMsg.includes("ongoing")) {
+        setStatus("ERRORE: Hai un pagamento in sospeso. Usa il tasto 'CONTROLLA SOSPESI' e attendi qualche minuto.");
+    } else {
+        setStatus("Errore: " + errorMsg);
+    }
     claimBtn.disabled = false;
+  }
+};
+
+// 4. SBLOCCO (INCOMPLETE)
+checkBtn.onclick = async () => {
+  setStatus("Interrogazione pagamenti incompleti...");
+  const res = await callApi("incomplete", "GET");
+  
+  if (res && res.error) {
+      setStatus("Risposta Pi: " + res.error_message || res.error);
+  } else if (Array.isArray(res) && res.length === 0) {
+      setStatus("Nessun pagamento trovato. Se vedi ancora 'ongoing', attendi 5 minuti per il reset automatico del server Pi.");
+  } else {
+      setStatus("Trovati pagamenti sospesi. Il server proverà a risolverli.");
   }
 };
 </script>
