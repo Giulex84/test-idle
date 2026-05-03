@@ -6,9 +6,9 @@
   <title>Idle Realm - Pi Network</title>
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+    body { font-family: 'Segoe UI', sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
     .container { max-width: 400px; margin: auto; border: 1px solid #333; padding: 20px; border-radius: 15px; background: #1a1a1a; }
-    h1 { color: #f1c40f; margin-bottom: 5px; }
+    h1 { color: #f1c40f; }
     button { padding: 15px; margin: 10px 0; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
     #login { background: #ff4757; color: white; }
     #buy { background: #5a6cff; color: white; }
@@ -22,23 +22,21 @@
 <div class="container">
   <h1>Idle Realm</h1>
   <div id="user-info">Effettua il login per iniziare</div>
-  
   <button id="login">COLLEGA PI WALLET</button>
   <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
   <button id="claim-reward" disabled>RICEVI PREMIO (A2U)</button>
-  
   <div id="status">In attesa di azione...</div>
 </div>
 
 <script>
 const Pi = window.Pi;
 let currentUser = null;
+let userToken = null;
 
-// Inizializzazione SDK (sandbox: false per wallet reali)
 try {
     Pi.init({ version: "2.0", sandbox: false });
 } catch(e) {
-    console.error("Errore init SDK:", e);
+    console.error("SDK Init Error:", e);
 }
 
 const statusEl = document.getElementById("status");
@@ -47,17 +45,16 @@ const loginBtn = document.getElementById("login");
 const buyBtn = document.getElementById("buy");
 const claimBtn = document.getElementById("claim-reward");
 
-function setStatus(msg) { 
-    console.log("Status update:", msg);
-    statusEl.innerText = "Stato: " + msg; 
-}
+function setStatus(msg) { statusEl.innerText = "Stato: " + msg; }
 
-// Funzione universale per le chiamate API
 async function postJson(url, body) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization-User": userToken // Invia il token per sbloccare il backend
+      },
       body: JSON.stringify(body)
     });
     return await res.json();
@@ -68,22 +65,21 @@ async function postJson(url, body) {
 
 loginBtn.onclick = async () => {
   try {
-    setStatus("Autenticazione in corso...");
+    setStatus("Autenticazione...");
     const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
-       // Callback per pagamenti incompleti
        postJson("/api/complete", { paymentId: payment.identifier, txid: payment.transaction.txid });
     });
 
     currentUser = auth.user;
+    userToken = auth.accessToken; // Salviamo il token di sessione
     
-    // Notifica il login al server
     await postJson("/api/auth", { user: currentUser });
 
     userEl.innerText = "Ciao, " + currentUser.username;
     loginBtn.style.display = "none";
     buyBtn.disabled = false;
     claimBtn.disabled = false;
-    setStatus("Login effettuato con successo! ✅");
+    setStatus("Login effettuato! ✅");
   } catch (e) {
     setStatus("Errore Login: " + e.message);
   }
@@ -99,35 +95,23 @@ buyBtn.onclick = () => {
     onReadyForServerApproval: (id) => postJson("/api/approve", { paymentId: id }),
     onReadyForServerCompletion: (id, txid) => {
         postJson("/api/complete", { paymentId: id, txid: txid });
-        setStatus("Acquisto completato con successo! ✅");
+        setStatus("Acquisto completato! ✅");
     },
-    onCancel: () => setStatus("Pagamento annullato dall'utente"),
-    onError: (err) => setStatus("Errore Pagamento: " + err.message)
+    onCancel: () => setStatus("Pagamento annullato"),
+    onError: (err) => setStatus("Errore: " + err.message)
   });
 };
 
 claimBtn.onclick = async () => {
   if (!currentUser) return;
-  
-  setStatus("Richiesta premio (A2U) inviata...");
-  claimBtn.disabled = true; // Evita doppi click compulsivi
-
+  setStatus("Richiesta premio inviata...");
+  claimBtn.disabled = true;
   const res = await postJson("/api/claim", { uid: currentUser.uid });
 
-  // LOGICA DI CONTROLLO RISPOSTA
-  if (res.identifier || res.id) { 
+  if (res.success) { 
     setStatus("Premio inviato! Controlla il wallet ✅");
-  } else if (res.error || res.message) {
-    const errorMsg = res.error || res.message;
-    // Gestione specifica per il blocco blockchain
-    if (errorMsg.includes("ongoing")) {
-       setStatus("Errore: Blockchain occupata. Attendi 2 minuti e riprova.");
-    } else {
-       setStatus("Errore: " + errorMsg);
-    }
-    claimBtn.disabled = false; // Riabilita se c'è errore
   } else {
-    setStatus("Risposta inattesa dal server. Riprova.");
+    setStatus("Errore: " + (res.error || res.message));
     claimBtn.disabled = false;
   }
 };
