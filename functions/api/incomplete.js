@@ -1,23 +1,20 @@
 export async function onRequest(context) {
   const apiKey = context.env.PI_API_KEY;
-  
-  // Prende il token che hai spedito dall'index.html
-  const userToken = context.request.headers.get("Authorization-User"); 
+  const userToken = context.request.headers.get("x-access-token"); 
 
   if (!userToken) {
-    return new Response(JSON.stringify({ error: "Token non pervenuto al server" }), { status: 401 });
+    return new Response(JSON.stringify({ error: "Token mancante" }), { status: 401 });
   }
 
   const response = await fetch("https://api.minepi.com/v2/payments/incomplete", {
     method: "GET",
     headers: {
       "Authorization": `Key ${apiKey}`,
-      "accessToken": userToken // Pi Network vuole il token utente qui
+      "accessToken": userToken 
     }
   });
 
-  const data = await response.json();
-  return new Response(JSON.stringify(data), {
+  return new Response(JSON.stringify(await response.json()), {
     status: response.status,
     headers: { "Content-Type": "application/json" }
   });
