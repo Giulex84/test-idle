@@ -6,150 +6,79 @@
   <title>Idle Realm - Pi Network</title>
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
-    .container { max-width: 400px; margin: auto; border: 1px solid #333; padding: 20px; border-radius: 15px; background: #1a1a1a; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-    h1 { color: #f1c40f; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 2px; }
-    #user-info { margin-bottom: 20px; color: #ffda79; font-weight: bold; min-height: 20px; }
-    button { padding: 15px; margin: 10px 0; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; text-transform: uppercase; }
+    body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
+    .container { max-width: 400px; margin: auto; border: 1px solid #333; padding: 20px; border-radius: 15px; background: #1a1a1a; }
+    button { padding: 15px; margin: 10px 0; width: 100%; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; }
     #login { background: #ff4757; color: white; }
     #buy { background: #5a6cff; color: white; }
     #claim-reward { background: #f1c40f; color: black; }
-    #check-status { background: #2ecc71; color: white; font-size: 11px; padding: 8px; }
-    button:disabled { opacity: 0.3; cursor: not-allowed; }
-    #status { margin-top: 20px; padding: 15px; background: #000; color: #00ffcc; font-family: monospace; font-size: 12px; border-radius: 8px; border: 1px solid #00ffcc; min-height: 40px; word-break: break-all; text-align: left; }
+    #check-status { background: #2ecc71; color: white; }
+    #status { margin-top: 20px; padding: 15px; background: #000; color: #00ffcc; border-radius: 8px; border: 1px solid #00ffcc; min-height: 40px; font-size: 12px; text-align: left; }
   </style>
 </head>
 <body>
-
 <div class="container">
   <h1>Idle Realm</h1>
-  <div id="user-info">Effettua il login</div>
-  
+  <div id="user-info">Login richiesto</div>
   <button id="login">COLLEGA PI WALLET</button>
   <button id="buy" disabled>ACQUISTA ITEM (0.01 π)</button>
   <button id="claim-reward" disabled>RICEVI PREMIO (A2U)</button>
   <button id="check-status" disabled>CONTROLLA PAGAMENTI SOSPESI</button>
-  
   <div id="status">In attesa di azione...</div>
 </div>
 
 <script>
 const Pi = window.Pi;
-let currentUser = null;
 let userToken = null;
+let currentUser = null;
 
-try {
-    Pi.init({ version: "2.0", sandbox: false });
-} catch(e) {
-    console.error("SDK Init Error:", e);
-}
+try { Pi.init({ version: "2.0", sandbox: false }); } catch(e) {}
 
 const statusEl = document.getElementById("status");
 const userEl = document.getElementById("user-info");
-const loginBtn = document.getElementById("login");
-const buyBtn = document.getElementById("buy");
-const claimBtn = document.getElementById("claim-reward");
-const checkBtn = document.getElementById("check-status");
 
-function setStatus(msg) { 
-    console.log("Status:", msg);
-    statusEl.innerText = "SISTEMA: " + msg; 
-}
+function setStatus(msg) { statusEl.innerText = "SISTEMA: " + msg; }
 
-// Chiamata universale al backend Cloudflare
 async function callApi(endpoint, method = "POST", body = null) {
   const options = {
     method: method,
     headers: { 
       "Content-Type": "application/json",
-      "Authorization-User": userToken // Header necessario per evitare 401
+      "Authorization-User": userToken // <--- TOKEN UTENTE
     }
   };
   if (body) options.body = JSON.stringify(body);
-
-  try {
-    const res = await fetch("/api/" + endpoint, options);
-    return await res.json();
-  } catch (e) {
-    return { error: "Errore di rete" };
-  }
+  const res = await fetch("/api/" + endpoint, options);
+  return await res.json();
 }
 
-// 1. LOGIN
-loginBtn.onclick = async () => {
+document.getElementById("login").onclick = async () => {
   try {
-    setStatus("Autenticazione...");
     const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
        callApi("complete", "POST", { paymentId: payment.identifier, txid: payment.transaction.txid });
     });
-
     currentUser = auth.user;
     userToken = auth.accessToken; 
-    
-    await callApi("auth", "POST", { user: currentUser });
-
     userEl.innerText = "Ciao, " + currentUser.username;
-    loginBtn.style.display = "none";
-    buyBtn.disabled = false;
-    claimBtn.disabled = false;
-    checkBtn.disabled = false;
+    document.getElementById("login").style.display = "none";
+    document.getElementById("buy").disabled = false;
+    document.getElementById("claim-reward").disabled = false;
+    document.getElementById("check-status").disabled = false;
     setStatus("Login effettuato! ✅");
-  } catch (e) {
-    setStatus("Errore Login: " + e.message);
-  }
+  } catch (e) { setStatus("Errore Login: " + e.message); }
 };
 
-// 2. ACQUISTO (USER-TO-APP)
-buyBtn.onclick = () => {
-  setStatus("Avvio pagamento...");
-  Pi.createPayment({
-    amount: 0.01,
-    memo: "Test acquisto",
-    metadata: { type: "item_test" }
-  }, {
-    onReadyForServerApproval: (id) => callApi("approve", "POST", { paymentId: id }),
-    onReadyForServerCompletion: (id, txid) => {
-        callApi("complete", "POST", { paymentId: id, txid: txid });
-        setStatus("Acquisto completato! ✅");
-    },
-    onCancel: () => setStatus("Annullato."),
-    onError: (err) => setStatus("Errore: " + err.message)
-  });
-};
-
-// 3. PREMIO (APP-TO-USER)
-claimBtn.onclick = async () => {
-  setStatus("Richiesta premio A2U...");
-  claimBtn.disabled = true;
-
+document.getElementById("claim-reward").onclick = async () => {
+  setStatus("Richiesta premio...");
   const res = await callApi("claim", "POST", { uid: currentUser.uid });
-
-  if (res.success) { 
-    setStatus("Premio inviato con successo! ✅");
-  } else {
-    // Gestione specifica dell'errore "ongoing"
-    const errorMsg = JSON.stringify(res);
-    if (errorMsg.includes("ongoing")) {
-        setStatus("ERRORE: Hai un pagamento in sospeso. Usa il tasto 'CONTROLLA SOSPESI' e attendi qualche minuto.");
-    } else {
-        setStatus("Errore: " + errorMsg);
-    }
-    claimBtn.disabled = false;
-  }
+  if (res.success) setStatus("Premio inviato! ✅");
+  else setStatus("Errore: " + JSON.stringify(res));
 };
 
-// 4. SBLOCCO (INCOMPLETE)
-checkBtn.onclick = async () => {
-  setStatus("Interrogazione pagamenti incompleti...");
+document.getElementById("check-status").onclick = async () => {
+  setStatus("Controllo coda...");
   const res = await callApi("incomplete", "GET");
-  
-  if (res && res.error) {
-      setStatus("Risposta Pi: " + res.error_message || res.error);
-  } else if (Array.isArray(res) && res.length === 0) {
-      setStatus("Nessun pagamento trovato. Se vedi ancora 'ongoing', attendi 5 minuti per il reset automatico del server Pi.");
-  } else {
-      setStatus("Trovati pagamenti sospesi. Il server proverà a risolverli.");
-  }
+  setStatus("Risposta Pi: " + JSON.stringify(res));
 };
 </script>
 </body>
