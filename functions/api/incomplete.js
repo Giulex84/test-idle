@@ -1,10 +1,9 @@
 export async function onRequest(context) {
   const apiKey = context.env.PI_API_KEY;
-  // Proviamo a leggere il token da entrambi i posti possibili per sicurezza
-  const userToken = context.request.headers.get("Authorization-User") || context.request.headers.get("accessToken"); 
+  const userToken = context.request.headers.get("Authorization-User"); 
 
   if (!userToken) {
-    return new Response(JSON.stringify({ error: "Token mancante nel frontend" }), { status: 401 });
+    return new Response(JSON.stringify({ error: "Token mancante" }), { status: 401 });
   }
 
   try {
@@ -12,7 +11,7 @@ export async function onRequest(context) {
       method: "GET",
       headers: {
         "Authorization": `Key ${apiKey}`,
-        "accessToken": userToken // Questo DEVE essere minuscolo/maiuscolo esattamente così
+        "accessToken": userToken 
       }
     });
 
