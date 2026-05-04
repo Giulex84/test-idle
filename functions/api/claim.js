@@ -1,27 +1,31 @@
 export async function onRequestPost(context) {
-  const { uid } = await context.request.json();
   const apiKey = context.env.PI_API_KEY;
+  const { searchParams } = new URL(context.request.url);
+  const userToken = searchParams.get('token'); // Recuperiamo il token utente
+
   const BASE_URL = "https://api.minepi.com/v2/payments";
 
   try {
-    // 1. Crea pagamento A2U
+    // 1. Creazione pagamento App-to-User
     const createRes = await fetch(BASE_URL, {
       method: "POST",
-      headers: { "Authorization": `Key ${apiKey}`, "Content-Type": "application/json" },
+      headers: { 
+        "Authorization": apiKey, // USIAMO SOLO LA VARIABILE (contiene già "Key ")
+        "Content-Type": "application/json" 
+      },
       body: JSON.stringify({
-        payment: { amount: 0.01, memo: "Premio A2U", metadata: { uid }, uid }
+        payment: { 
+          amount: 0.01, 
+          memo: "Premio Idle Realm", 
+          metadata: { info: "A2U Reward" },
+          uid: "user-id-placeholder" // In produzione qui andrebbe l'UID dell'utente
+        }
       })
     });
+
     const result = await createRes.json();
-    if (!createRes.ok) return new Response(JSON.stringify(result), { status: createRes.status });
+    return new Response(JSON.stringify(result), { status: createRes.status });
 
-    const pid = result.identifier;
-
-    // 2. Approva e 3. Completa (Sequenza Server-Side per A2U)
-    await fetch(`${BASE_URL}/${pid}/approve`, { method: "POST", headers: { "Authorization": `Key ${apiKey}` } });
-    const finalRes = await fetch(`${BASE_URL}/${pid}/complete`, { method: "POST", headers: { "Authorization": `Key ${apiKey}` } });
-
-    return new Response(JSON.stringify({ success: true, data: await finalRes.json() }));
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
