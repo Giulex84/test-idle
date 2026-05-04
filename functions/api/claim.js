@@ -1,41 +1,24 @@
 export async function onRequestPost(context) {
   const apiKey = context.env.PI_API_KEY;
-  const { searchParams } = new URL(context.request.url);
-  const userToken = searchParams.get('token');
-
-  const BASE_URL = "https://api.minepi.com/v2/payments";
+  const myHeaders = new Headers();
+  myHeaders.append("Authorization", apiKey);
+  myHeaders.append("Content-Type", "application/json");
 
   try {
-    // Leggiamo i dati inviati dal frontend (se presenti)
-    const requestData = await context.request.json().catch(() => ({}));
-    const uid = requestData.uid || "user_id_da_frontend"; 
-
-    // 1. Creazione pagamento A2U
-    const createRes = await fetch(BASE_URL, {
+    const response = await fetch("https://api.minepi.com/v2/payments", {
       method: "POST",
-      headers: { 
-        "Authorization": apiKey, 
-        "Content-Type": "application/json" 
-      },
+      headers: myHeaders, // Usa l'oggetto Headers() come suggerito in chat
       body: JSON.stringify({
         payment: { 
           amount: 0.01, 
-          memo: "Premio Idle Realm", 
+          memo: "Premio sbloccato", 
           metadata: { type: "reward" },
-          uid: uid 
+          uid: "a575021c-57be-43fe-9b31-83df80e16fda" 
         }
       })
     });
 
-    const result = await createRes.json();
-
-    // Se c'è già un pagamento in corso (ongoing_payment_found), 
-    // restituiamo i dettagli di quello così Postman può vederlo
-    return new Response(JSON.stringify(result), { 
-      status: createRes.status,
-      headers: { "Content-Type": "application/json" }
-    });
-
+    return new Response(await response.text(), { status: response.status });
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
