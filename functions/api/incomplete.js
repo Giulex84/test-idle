@@ -1,12 +1,13 @@
 export async function onRequest(context) {
-  const apiKey = context.env.PI_API_KEY; // Assicurati di aver aggiunto "Key " davanti su Cloudflare!
+  const apiKey = context.env.PI_API_KEY; // Deve avere "Key " davanti su Cloudflare
   
-  // Legge il token dal nuovo header personalizzato
-  const userToken = context.request.headers.get("x-pi-token"); 
+  // Legge il token dall'URL (?token=...)
+  const { searchParams } = new URL(context.request.url);
+  const userToken = searchParams.get('token');
 
   if (!userToken) {
-    return new Response(JSON.stringify({ error: "Manca lo User Access Token" }), { 
-      status: 401,
+    return new Response(JSON.stringify({ error: "Token non ricevuto" }), { 
+      status: 400,
       headers: { "Content-Type": "application/json" }
     });
   }
@@ -26,6 +27,6 @@ export async function onRequest(context) {
       headers: { "Content-Type": "application/json" }
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "Errore di rete" }), { status: 500 });
+    return new Response(JSON.stringify({ error: "Errore server" }), { status: 500 });
   }
 }
