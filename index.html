@@ -5,19 +5,15 @@
   <title>Testing Idle - Testnet</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
-  <script>
-    Pi.init({ version: "2.0", sandbox: true });
-  </script>
+  <script>Pi.init({ version: "2.0", sandbox: true });</script>
   <style>
     body { margin: 0; min-height: 100vh; font-family: sans-serif; background: #0d0d14; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .app { width: 90%; max-width: 420px; background: #1a1a2e; padding: 30px; border-radius: 20px; border: 1px solid #4a4e69; text-align: center; }
     button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; transition: 0.2s; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
     #login { background: #6c5ce7; color: #fff; }
     #u2a { background: #e17055; color: #fff; }
     #a2u { background: #00b894; color: #fff; }
-    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; white-space: pre-wrap; word-break: break-all; border: 1px solid #333; min-height: 50px; }
-    footer { margin-top: 30px; font-size: 0.8rem; opacity: 0.7; }
+    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; white-space: pre-wrap; border: 1px solid #333; min-height: 60px; }
   </style>
 </head>
 <body>
@@ -26,59 +22,43 @@
     <p>Compliance Mode: Testnet</p>
     <button id="login">Accedi con Pi Browser</button>
     <div id="payment-section" style="display:none;">
-      <button id="u2a">Invia 0.1 Test-Pi (U2A)</button>
+      <button id="u2a">Paga 0.1 Test-Pi (U2A)</button>
       <button id="a2u">Ricevi 1.0 Test-Pi (A2U)</button>
     </div>
-    <div id="status">Stato: In attesa di login...</div>
+    <div id="status">Stato: In attesa...</div>
   </main>
 
   <script>
-    const loginBtn = document.getElementById("login");
-    const paymentSection = document.getElementById("payment-section");
-    const u2aBtn = document.getElementById("u2a");
-    const a2uBtn = document.getElementById("a2u");
     const statusEl = document.getElementById("status");
     let piUser = null;
 
-    loginBtn.onclick = async () => {
+    document.getElementById("login").onclick = async () => {
       try {
-        statusEl.textContent = "Autenticazione...";
         const auth = await Pi.authenticate(["username", "payments", "wallet_address"]);
         piUser = auth.user;
-        statusEl.textContent = `Benvenuto, ${piUser.username}!`;
-        loginBtn.style.display = "none";
-        paymentSection.style.display = "block";
-      } catch (err) {
-        statusEl.textContent = "Errore Login: " + err.message;
-      }
+        statusEl.textContent = `Ciao ${piUser.username}!`;
+        document.getElementById("login").style.display = "none";
+        document.getElementById("payment-section").style.display = "block";
+      } catch (err) { statusEl.textContent = "Errore: " + err.message; }
     };
 
-    u2aBtn.onclick = async () => {
-      statusEl.textContent = "Verifica flussi pendenti...";
+    document.getElementById("u2a").onclick = async () => {
+      statusEl.textContent = "Inizializzazione...";
       try {
         await Pi.createPayment({
           amount: 0.1,
-          memo: "Testing Idle U2A Payment",
-          metadata: { type: "u2a_testing_idle" },
+          memo: "Testing Idle U2A",
+          metadata: { type: "testing_idle_u2a" },
         }, {
           onReadyForServerApproval: async (paymentId) => {
-            statusEl.textContent = "Approvazione server in corso...";
             const res = await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "approve", paymentId })
             });
-            if (!res.ok) {
-                const errorData = await res.json();
-                if(errorData.error === "ongoing_payment_found") {
-                    statusEl.textContent = "Blocco rilevato e rimosso. Clicca di nuovo.";
-                } else {
-                    throw new Error("Errore approvazione");
-                }
-            }
+            if (res.status === 409) statusEl.textContent = "Pulizia vecchio pagamento... Riprova ora.";
           },
           onReadyForServerCompletion: async (paymentId, txid) => {
-            statusEl.textContent = "Completamento in corso...";
             await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -86,16 +66,14 @@
             });
             statusEl.textContent = "U2A Successo! ✅";
           },
-          onCancel: (paymentId) => { statusEl.textContent = "Pagamento annullato."; },
-          onError: (error) => { statusEl.textContent = "Errore: " + error.message; },
+          onCancel: () => { statusEl.textContent = "Annullato."; },
+          onError: (err) => { statusEl.textContent = "Errore SDK: " + err.message; },
         });
-      } catch (err) {
-        statusEl.textContent = "Errore critico: " + err.message;
-      }
+      } catch (err) { statusEl.textContent = "Errore: " + err.message; }
     };
 
-    a2uBtn.onclick = async () => {
-      statusEl.textContent = "Richiesta A2U (App -> Utente)...";
+    document.getElementById("a2u").onclick = async () => {
+      statusEl.textContent = "Richiesta A2U...";
       try {
         const res = await fetch("/api/a2u", {
           method: "POST",
@@ -103,11 +81,7 @@
           body: JSON.stringify({ uid: piUser.uid, amount: 1 })
         });
         const data = await res.json();
-        if (res.ok) {
-            statusEl.textContent = `A2U Successo! ✅\nTXID: ${data.txid.substring(0,15)}...`;
-        } else {
-            statusEl.textContent = "Errore A2U: " + data.error;
-        }
+        statusEl.textContent = res.ok ? "A2U Inviato! ✅" : "Errore: " + data.error;
       } catch (err) { statusEl.textContent = "Errore di rete."; }
     };
   </script>
