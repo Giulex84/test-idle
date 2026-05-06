@@ -15,12 +15,17 @@ module.exports = async function handler(req, res) {
     });
 
     let data = await createRes.json();
+    
     if (data.error === "ongoing_payment_found") {
+      // Forza la cancellazione del vecchio pagamento
       await fetch(`${BASE_URL}/${data.payment.identifier}/cancel`, {
         method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}` }
       });
-      return res.status(409).json({ error: "Riprova tra un istante" });
+      // Aspetta 3 secondi per permettere al server Pi di sincronizzarsi
+      return res.status(409).json({ error: "Sessione pulita. Attendi 3 secondi e clicca di nuovo." });
     }
+
+    if (!createRes.ok) return res.status(createRes.status).json(data);
 
     const paymentId = data.identifier;
     await fetch(`${BASE_URL}/${paymentId}/approve`, { method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}` } });
@@ -35,6 +40,7 @@ module.exports = async function handler(req, res) {
 
     tx.sign(keypair);
     const result = await server.submitTransaction(tx);
+    
     await fetch(`${BASE_URL}/${paymentId}/complete`, {
       method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ txid: result.hash }),
