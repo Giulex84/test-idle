@@ -23,15 +23,25 @@ module.exports = async function handler(req, res) {
       return res.status(409).json({ error: "Sessione pulita. Clicca di nuovo tra 3 secondi." });
     }
 
+    if (!createRes.ok) return res.status(createRes.status).json(data);
+
     const paymentId = data.identifier;
     await fetch(`${BASE_URL}/${paymentId}/approve`, { method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}` } });
 
     const server = new StellarSdk.Horizon.Server("https://api.testnet.minepi.com");
     const keypair = Keypair.fromSecret(APP_SEED);
     const account = await server.loadAccount(keypair.publicKey());
+    
+    // Correzione Memo: Usiamo l'ID del pagamento troncato a 28 caratteri per compatibilità Stellar
+    const safeMemo = paymentId.substring(0, 28);
+
     const tx = new TransactionBuilder(account, { fee: "1000000", networkPassphrase: "Pi Testnet" })
-      .addMemo(Memo.text(paymentId))
-      .addOperation(Operation.payment({ destination: data.to_address, asset: Asset.native(), amount: Number(amount).toFixed(7) }))
+      .addMemo(Memo.text(safeMemo))
+      .addOperation(Operation.payment({ 
+          destination: data.to_address, 
+          asset: Asset.native(), 
+          amount: Number(amount).toFixed(7) 
+      }))
       .setTimeout(60).build();
 
     tx.sign(keypair);
@@ -43,5 +53,7 @@ module.exports = async function handler(req, res) {
     });
 
     return res.status(200).json({ success: true, txid: result.hash });
-  } catch (err) { return res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    return res.status(500).json({ error: err.message }); 
+  }
 };
