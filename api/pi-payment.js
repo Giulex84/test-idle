@@ -1,16 +1,26 @@
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  console.log("--- RICHIESTA U2A RICEVUTA ---");
+  console.log("Corpo della richiesta:", JSON.stringify(req.body));
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Metodo non consentito" });
+  }
 
   const { action, paymentId, txid } = req.body;
   const PI_API_KEY = process.env.PI_API_KEY;
   const BASE_URL = "https://api.minepi.com/v2/payments";
 
   try {
+    // Se stiamo completando, attendiamo 3 secondi per evitare tx_parsing_failed
     if (action === "complete") {
+      console.log("Attesa sincronizzazione blockchain per ID:", paymentId);
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
-    const response = await fetch(`${BASE_URL}/${paymentId}/${action}`, {
+    const endpoint = `${BASE_URL}/${paymentId}/${action}`;
+    console.log("Chiamata API Pi Network a:", endpoint);
+
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Authorization": `Key ${PI_API_KEY}`,
@@ -20,18 +30,11 @@ module.exports = async function handler(req, res) {
     });
 
     const data = await response.json();
-
-    if (data.error === "ongoing_payment_found" || response.status === 400) {
-      const idToCancel = data.payment?.identifier || paymentId;
-      await fetch(`${BASE_URL}/${idToCancel}/cancel`, {
-        method: "POST",
-        headers: { "Authorization": `Key ${PI_API_KEY}` }
-      });
-      return res.status(409).json({ error: "cleanup_triggered", message: "Sessione resettata. Riprova." });
-    }
+    console.log("Risposta da Pi API:", JSON.stringify(data));
 
     return res.status(response.status).json(data);
   } catch (error) {
-    return res.status(500).json({ error: "Server Error", details: error.message });
+    console.error("ERRORE CRITICO BACKEND:", error.message);
+    return res.status(500).json({ error: "Errore interno del server", details: error.message });
   }
 };
