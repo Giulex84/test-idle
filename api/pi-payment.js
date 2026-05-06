@@ -5,11 +5,15 @@ module.exports = async function handler(req, res) {
   const PI_API_KEY = process.env.PI_API_KEY;
   const BASE_URL = "https://api.minepi.com/v2/payments";
 
-  if (!PI_API_KEY) return res.status(500).json({ error: "Manca PI_API_KEY" });
+  if (!PI_API_KEY) return res.status(500).json({ error: "Chiave API mancante su Vercel" });
 
   try {
-    const endpoint = `${BASE_URL}/${paymentId}/${action}`;
-    const response = await fetch(endpoint, {
+    // Piccolo ritardo per permettere alla blockchain di aggiornarsi
+    if (action === "complete") {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    const response = await fetch(`${BASE_URL}/${paymentId}/${action}`, {
       method: "POST",
       headers: {
         "Authorization": `Key ${PI_API_KEY}`,
@@ -20,19 +24,18 @@ module.exports = async function handler(req, res) {
 
     const data = await response.json();
 
-    // GESTIONE ERRORE BLOCCANTE: Se c'è un pagamento pendente, lo cancelliamo
-    if (data.error === "ongoing_payment_found" || (response.status === 400 && data.message?.includes("ongoing"))) {
-      const ongoingId = data.payment?.identifier || paymentId;
-      await fetch(`${BASE_URL}/${ongoingId}/cancel`, {
+    // Se troviamo un pagamento 'ongoing', lo cancelliamo e avvisiamo il frontend
+    if (data.error === "ongoing_payment_found" || response.status === 400) {
+      const idToCancel = data.payment?.identifier || paymentId;
+      await fetch(`${BASE_URL}/${idToCancel}/cancel`, {
         method: "POST",
         headers: { "Authorization": `Key ${PI_API_KEY}` }
       });
-      return res.status(409).json({ error: "ongoing_cleaned", message: "Pagamento pendente rimosso. Riprova." });
+      return res.status(409).json({ error: "cleanup_triggered", message: "Sessione resettata. Riprova." });
     }
 
     return res.status(response.status).json(data);
   } catch (error) {
-    console.error("Payment Error:", error);
-    return res.status(500).json({ error: "Internal Server Error", details: error.message });
+    return res.status(500).json({ error: "Errore API", details: error.message });
   }
 };
