@@ -1,26 +1,21 @@
-export async function onRequestPost(context) {
-  const apiKey = context.env.PI_API_KEY;
+export async function onRequest(context) {
   const { paymentId, txid } = await context.request.json();
+  const apiKey = context.env.PI_API_KEY;
 
   const myHeaders = new Headers();
-  myHeaders.append("Authorization", apiKey);
+  myHeaders.append("Authorization", `Key ${apiKey}`);
   myHeaders.append("Content-Type", "application/json");
 
   try {
-    // Se txid non esiste (caso A2U bloccato), inviamo oggetto vuoto
-    const body = txid ? JSON.stringify({ txid }) : JSON.stringify({});
-
+    // Chiamata di completamento definitiva
     const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/complete`, {
       method: "POST",
       headers: myHeaders,
-      body: body
+      body: JSON.stringify({ txid: txid })
     });
 
     const data = await response.json();
-    return new Response(JSON.stringify(data), { 
-      status: response.status,
-      headers: { "Content-Type": "application/json" }
-    });
+    return new Response(JSON.stringify(data), { status: 200 });
   } catch (e) {
     return new Response(JSON.stringify({ error: e.message }), { status: 500 });
   }
