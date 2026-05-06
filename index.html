@@ -9,23 +9,23 @@
   <style>
     body { margin: 0; min-height: 100vh; font-family: sans-serif; background: #0d0d14; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .app { width: 90%; max-width: 420px; background: #1a1a2e; padding: 30px; border-radius: 20px; border: 1px solid #4a4e69; text-align: center; }
-    button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; transition: 0.2s; }
-    #login { background: #6c5ce7; color: #fff; }
+    button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; }
     #u2a { background: #e17055; color: #fff; }
     #a2u { background: #00b894; color: #fff; }
-    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; white-space: pre-wrap; border: 1px solid #333; min-height: 60px; }
+    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; border: 1px solid #333; min-height: 60px; word-break: break-all; }
   </style>
 </head>
 <body>
   <main class="app">
     <h2>Testing Idle</h2>
-    <p>Compliance Mode: Testnet</p>
-    <button id="login">Accedi con Pi Browser</button>
+    <div id="auth-section">
+      <button id="login" style="background: #6c5ce7; color: #fff;">Accedi con Pi Browser</button>
+    </div>
     <div id="payment-section" style="display:none;">
       <button id="u2a">Paga 0.1 Test-Pi (U2A)</button>
       <button id="a2u">Ricevi 1.0 Test-Pi (A2U)</button>
     </div>
-    <div id="status">Stato: In attesa...</div>
+    <div id="status">Stato: In attesa di login...</div>
   </main>
 
   <script>
@@ -36,10 +36,10 @@
       try {
         const auth = await Pi.authenticate(["username", "payments", "wallet_address"]);
         piUser = auth.user;
-        statusEl.textContent = `Ciao ${piUser.username}!`;
-        document.getElementById("login").style.display = "none";
+        statusEl.textContent = `Benvenuto ${piUser.username}`;
+        document.getElementById("auth-section").style.display = "none";
         document.getElementById("payment-section").style.display = "block";
-      } catch (err) { statusEl.textContent = "Errore: " + err.message; }
+      } catch (err) { statusEl.textContent = "Errore Login: " + err.message; }
     };
 
     document.getElementById("u2a").onclick = async () => {
@@ -47,8 +47,8 @@
       try {
         await Pi.createPayment({
           amount: 0.1,
-          memo: "Testing Idle U2A",
-          metadata: { type: "testing_idle_u2a" },
+          memo: "Testing Idle U2A Payment",
+          metadata: { type: "testnet_u2a" },
         }, {
           onReadyForServerApproval: async (paymentId) => {
             const res = await fetch("/api/pi-payment", {
@@ -56,18 +56,22 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "approve", paymentId })
             });
-            if (res.status === 409) statusEl.textContent = "Pulizia vecchio pagamento... Riprova ora.";
+            if (res.status === 409) statusEl.textContent = "Pulizia sessione... Clicca di nuovo.";
           },
           onReadyForServerCompletion: async (paymentId, txid) => {
+            statusEl.textContent = "Completamento...";
             await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "complete", paymentId, txid })
             });
-            statusEl.textContent = "U2A Successo! ✅";
+            statusEl.textContent = "Successo U2A! ✅";
           },
           onCancel: () => { statusEl.textContent = "Annullato."; },
-          onError: (err) => { statusEl.textContent = "Errore SDK: " + err.message; },
+          onError: (error) => { 
+            console.error(error);
+            statusEl.textContent = "Errore: " + error.message + ". Se il pagamento è uscito dal wallet, attendi 1 minuto e riprova.";
+          },
         });
       } catch (err) { statusEl.textContent = "Errore: " + err.message; }
     };
@@ -81,8 +85,8 @@
           body: JSON.stringify({ uid: piUser.uid, amount: 1 })
         });
         const data = await res.json();
-        statusEl.textContent = res.ok ? "A2U Inviato! ✅" : "Errore: " + data.error;
-      } catch (err) { statusEl.textContent = "Errore di rete."; }
+        statusEl.textContent = res.ok ? "Ricevuto! ✅" : "Errore A2U: " + data.error;
+      } catch (err) { statusEl.textContent = "Errore di rete A2U."; }
     };
   </script>
 </body>
