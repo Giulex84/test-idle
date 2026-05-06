@@ -7,25 +7,25 @@
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <script>Pi.init({ version: "2.0", sandbox: true });</script>
   <style>
-    body { margin: 0; min-height: 100vh; font-family: sans-serif; background: #0d0d14; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; }
-    .app { width: 90%; max-width: 420px; background: #1a1a2e; padding: 30px; border-radius: 20px; border: 1px solid #4a4e69; text-align: center; }
-    button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; }
-    #u2a { background: #e17055; color: #fff; }
-    #a2u { background: #00b894; color: #fff; }
-    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; border: 1px solid #333; min-height: 60px; word-break: break-all; }
+    body { margin: 0; min-height: 100vh; font-family: sans-serif; background: #0d1117; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    .app { width: 90%; max-width: 400px; background: #161b22; padding: 30px; border-radius: 15px; border: 1px solid #30363d; text-align: center; }
+    button { width: 100%; border-radius: 8px; padding: 12px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; }
+    #u2a { background: #f78166; color: #fff; }
+    #a2u { background: #238636; color: #fff; }
+    #status { margin-top: 20px; padding: 15px; border-radius: 8px; background: #010409; font-family: monospace; font-size: 0.85rem; color: #39d353; border: 1px solid #30363d; min-height: 50px; word-break: break-all; }
   </style>
 </head>
 <body>
   <main class="app">
     <h2>Testing Idle</h2>
     <div id="auth-section">
-      <button id="login" style="background: #6c5ce7; color: #fff;">Accedi con Pi Browser</button>
+      <button id="login" style="background: #1f6feb; color: #fff;">Accedi con Pi Browser</button>
     </div>
     <div id="payment-section" style="display:none;">
       <button id="u2a">Paga 0.1 Test-Pi (U2A)</button>
       <button id="a2u">Ricevi 1.0 Test-Pi (A2U)</button>
     </div>
-    <div id="status">Stato: In attesa di login...</div>
+    <div id="status">In attesa di login...</div>
   </main>
 
   <script>
@@ -47,8 +47,8 @@
       try {
         await Pi.createPayment({
           amount: 0.1,
-          memo: "Testing Idle U2A Payment",
-          metadata: { type: "testnet_u2a" },
+          memo: "Testing Idle U2A",
+          metadata: { type: "test_u2a" },
         }, {
           onReadyForServerApproval: async (paymentId) => {
             const res = await fetch("/api/pi-payment", {
@@ -56,22 +56,18 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "approve", paymentId })
             });
-            if (res.status === 409) statusEl.textContent = "Pulizia sessione... Clicca di nuovo.";
+            if (res.status === 409) statusEl.textContent = "Sessione resettata. Riprova ora.";
           },
           onReadyForServerCompletion: async (paymentId, txid) => {
-            statusEl.textContent = "Completamento...";
             await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "complete", paymentId, txid })
             });
-            statusEl.textContent = "Successo U2A! ✅";
+            statusEl.textContent = "Pagamento completato! ✅";
           },
           onCancel: () => { statusEl.textContent = "Annullato."; },
-          onError: (error) => { 
-            console.error(error);
-            statusEl.textContent = "Errore: " + error.message + ". Se il pagamento è uscito dal wallet, attendi 1 minuto e riprova.";
-          },
+          onError: (err) => { statusEl.textContent = "Errore: " + err.message; },
         });
       } catch (err) { statusEl.textContent = "Errore: " + err.message; }
     };
@@ -85,8 +81,8 @@
           body: JSON.stringify({ uid: piUser.uid, amount: 1 })
         });
         const data = await res.json();
-        statusEl.textContent = res.ok ? "Ricevuto! ✅" : "Errore A2U: " + data.error;
-      } catch (err) { statusEl.textContent = "Errore di rete A2U."; }
+        statusEl.textContent = res.ok ? "Inviato con successo! ✅" : "Errore A2U: " + data.error;
+      } catch (err) { statusEl.textContent = "Errore di rete."; }
     };
   </script>
 </body>
