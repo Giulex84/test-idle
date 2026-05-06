@@ -5,24 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     <script>Pi.init({ version: "2.0", sandbox: true });</script>
-    <title>Giulex Hub Test</title>
     <style>
-        body { font-family: sans-serif; background: #0d1117; color: white; text-align: center; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-        .app { background: #161b22; padding: 30px; border-radius: 15px; border: 1px solid #30363d; width: 90%; max-width: 400px; }
-        .btn { padding: 15px; margin: 10px 0; width: 100%; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; color: white; }
-        #status { background: #010409; padding: 15px; border-radius: 8px; margin-top: 20px; min-height: 50px; font-family: monospace; font-size: 0.9rem; border: 1px solid #30363d; word-break: break-all; }
+        body { font-family: sans-serif; background: #0d1117; color: white; text-align: center; padding: 20px; }
+        .btn { padding: 15px; margin: 10px; width: 80%; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; color: white; }
+        #status { background: #161b22; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #30363d; }
     </style>
 </head>
 <body>
-    <div class="app">
-        <h2>Giulex Hub Test</h2>
-        <button id="login" class="btn" style="background: #1f6feb;">Accedi con Pi</button>
-        <div id="controls" style="display:none;">
-            <button id="u2a" class="btn" style="background: #f78166;">Paga 0.1 Pi (U2A)</button>
-            <button id="a2u" class="btn" style="background: #238636;">Ricevi 1.0 Pi (A2U)</button>
-        </div>
-        <div id="status">Stato: In attesa di login...</div>
+    <h2>Giulex Hub Test</h2>
+    <button id="login" class="btn" style="background: #1f6feb;">Accedi</button>
+    <div id="controls" style="display:none;">
+        <button id="u2a" class="btn" style="background: #f78166;">Paga 0.1 Pi (U2A)</button>
+        <button id="a2u" class="btn" style="background: #238636;">Ricevi 1.0 Pi (A2U)</button>
     </div>
+    <div id="status">Stato: In attesa di login...</div>
 
     <script>
         const status = document.getElementById("status");
@@ -30,48 +26,40 @@
 
         document.getElementById("login").onclick = async () => {
             try {
-                const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (p) => {});
+                const auth = await Pi.authenticate(["username", "payments"], (p) => {});
                 user = auth.user;
                 status.innerText = "Ciao, " + user.username;
                 document.getElementById("controls").style.display = "block";
                 document.getElementById("login").style.display = "none";
-            } catch (e) { status.innerText = "Errore: " + e.message; }
+            } catch (e) { status.innerText = "Errore login: " + e.message; }
         };
 
         document.getElementById("u2a").onclick = async () => {
-            status.innerText = "Inizializzazione...";
+            status.innerText = "Inizializzazione U2A...";
             try {
                 await Pi.createPayment({ amount: 0.1, memo: "Test U2A", metadata: { s: "u" } }, {
-                    onReadyForServerApproval: async (id) => {
-                        const res = await fetch("/api/pi-payment", {
-                            method: "POST", headers: {"Content-Type": "application/json"},
-                            body: JSON.stringify({ action: "approve", paymentId: id })
-                        });
-                        if (res.status === 409) status.innerText = "Sessione pulita. Clicca di nuovo.";
-                    },
-                    onReadyForServerCompletion: async (id, tx) => {
-                        await fetch("/api/pi-payment", {
-                            method: "POST", headers: {"Content-Type": "application/json"},
-                            body: JSON.stringify({ action: "complete", paymentId: id, txid: tx })
-                        });
-                        status.innerText = "Pagamento completato! ✅";
-                    },
-                    onCancel: () => status.innerText = "Annullato",
-                    onError: (e) => status.innerText = "Errore: " + e.message
+                    onReadyForServerApproval: (id) => fetch("/api/pi-payment", {
+                        method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "approve", paymentId: id })
+                    }),
+                    onReadyForServerCompletion: (id, tx) => fetch("/api/pi-payment", {
+                        method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "complete", paymentId: id, txid: tx })
+                    }),
+                    onCancel: () => status.innerText = "Pagamento annullato.",
+                    onError: (e) => status.innerText = "Errore SDK: " + e.message
                 });
-            } catch (e) { status.innerText = "Errore durante il processo."; }
+            } catch (e) { status.innerText = "Errore critico U2A."; }
         };
 
         document.getElementById("a2u").onclick = async () => {
             status.innerText = "Elaborazione A2U...";
-            try {
-                const res = await fetch("/api/a2u", {
-                    method: "POST", headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({ uid: user.uid, amount: 1 })
-                });
-                const data = await res.json();
-                status.innerText = res.ok ? "Ricevuto! ✅" : (data.error || "Errore sconosciuto");
-            } catch (e) { status.innerText = "Errore di rete."; }
+            const res = await fetch("/api/a2u", {
+                method: "POST", headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ uid: user.uid, amount: 1 })
+            });
+            const data = await res.json();
+            status.innerText = res.ok ? "Ricevuto! ✅" : "Errore: " + data.error;
         };
     </script>
 </body>
