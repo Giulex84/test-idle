@@ -6,136 +6,178 @@
     <title>Idle Realm - Pi Network Testnet</title>
     <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     <style>
-        body { font-family: sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
-        .container { max-width: 400px; margin: auto; background: #1e1e1e; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        button { width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
+        .container { max-width: 400px; margin: auto; background: #1e1e1e; padding: 30px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.7); }
+        h1 { margin-bottom: 5px; }
+        button { width: 100%; padding: 14px; margin: 12px 0; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; transition: transform 0.2s, background 0.3s; font-size: 1rem; }
+        button:active { transform: scale(0.98); }
         #login { background: #e67e22; color: white; }
         #u2a { background: #3498db; color: white; } 
         #a2u { background: #9b59b6; color: white; } 
         #unlock { background: #2ecc71; color: white; }
-        button:disabled { background: #555; cursor: not-allowed; }
-        #status { margin-top: 15px; font-size: 0.9em; color: #bbb; word-break: break-all; min-height: 40px; }
-        .testnet-badge { background: #f1c40f; color: black; padding: 5px; font-size: 0.7em; border-radius: 5px; font-weight: bold; }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; transform: none; }
+        #status { margin-top: 20px; font-size: 0.85em; color: #aaa; word-break: break-all; border-top: 1px solid #333; padding-top: 15px; min-height: 50px; }
+        .testnet-badge { background: #f1c40f; color: black; padding: 4px 8px; font-size: 0.6em; border-radius: 5px; vertical-align: middle; }
+        .user-info { margin: 15px 0; font-weight: bold; color: #f1c40f; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <h1>Idle Realm <span class="testnet-badge">TESTNET</span></h1>
-    <p id="user-display">Effettua il login per iniziare</p>
+    <div id="user-display" class="user-info">Effettua il login per iniziare</div>
     
     <button id="login">COLLEGA PI WALLET</button>
     <button id="u2a" disabled>ACQUISTA ITEM (U2A)</button>
     <button id="a2u" disabled>RICEVI PREMIO (A2U)</button>
     <button id="unlock" disabled>SBLOCCA SOSPESI</button>
 
-    <div id="status">Stato: In attesa di login...</div>
+    <div id="status">Stato: In attesa di autenticazione...</div>
 </div>
 
 <script>
     const Pi = window.Pi;
+    let currentUser = null;
 
-    // Configurazione TESTNET
+    // Inizializzazione SDK
     try { 
         Pi.init({ version: "2.0", sandbox: true }); 
     } catch(e) {
-        console.error("Errore inizializzazione:", e);
+        console.error("Errore SDK:", e);
     }
 
-    const updateStatus = (msg) => document.getElementById('status').innerText = "Stato: " + msg;
+    const updateStatus = (msg) => {
+        console.log(msg);
+        document.getElementById('status').innerText = "Stato: " + msg;
+    };
 
     // --- LOGICA AUTH ---
     document.getElementById('login').onclick = async () => {
         try {
-            updateStatus("Autenticazione in corso...");
-            const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (payment) => {
-                // Callback per pagamenti incompleti trovati durante il login
-                updateStatus("Pagamento sospeso rilevato al login. Sblocco...");
-                handleComplete(payment.identifier, payment.transaction ? payment.transaction.txid : null);
-            });
-
+            updateStatus("Connessione al Wallet...");
+            const auth = await Pi.authenticate(["username", "payments", "wallet_address"], onIncompletePaymentFound);
+            
+            currentUser = auth.user;
             document.getElementById('user-display').innerText = "Benvenuto, " + auth.user.username;
             
+            // UI Update
             document.getElementById('login').style.display = 'none';
             document.getElementById('u2a').disabled = false;
             document.getElementById('a2u').disabled = false;
             document.getElementById('unlock').disabled = false;
             
-            updateStatus("Login effettuato in Testnet! ✅");
+            updateStatus("Pronto per il test! ✅");
         } catch (err) {
             updateStatus("Errore Login: " + err.message);
         }
     };
 
+    // --- CALLBACK PAGAMENTI INCOMPLETI ---
+    async function onIncompletePaymentFound(payment) {
+        updateStatus("Rilevato pagamento sospeso (" + payment.identifier + "). Risoluzione...");
+        try {
+            if (payment.transaction) {
+                await handleComplete(payment.identifier, payment.transaction.txid);
+            } else {
+                await handleCancel(payment.identifier);
+            }
+            updateStatus("Sistema pulito con successo.");
+        } catch (e) {
+            updateStatus("Impossibile sbloccare automaticamente.");
+        }
+    }
+
     // --- USER TO APP (U2A) ---
     document.getElementById('u2a').onclick = () => {
+        updateStatus("Inizializzazione pagamento U2A...");
         Pi.createPayment({
             amount: 0.01,
             memo: "Test Acquisto In-Game",
-            metadata: { item: "item_test" }
+            metadata: { item: "sword_01" }
         }, {
-            onReadyForServerApproval: (paymentId) => {
-                updateStatus("Approvazione server...");
-                fetch("/api/approve", {
+            onReadyForServerApproval: async (paymentId) => {
+                updateStatus("Approvazione server in corso...");
+                await fetch("/api/approve", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ paymentId })
                 });
             },
-            onReadyForServerCompletion: (paymentId, txid) => {
-                updateStatus("Completamento server...");
-                handleComplete(paymentId, txid);
+            onReadyForServerCompletion: async (paymentId, txid) => {
+                updateStatus("Trasferimento completato. Finalizzazione...");
+                await handleComplete(paymentId, txid);
+                updateStatus("Acquisto U2A riuscito! ✅");
             },
-            onCancel: () => updateStatus("Pagamento annullato."),
-            onError: (err) => updateStatus("Errore: " + err.message)
+            onCancel: () => updateStatus("Pagamento annullato dall'utente."),
+            onError: (err) => updateStatus("Errore U2A: " + err.message)
         });
     };
 
     // --- APP TO USER (A2U) ---
     document.getElementById('a2u').onclick = async () => {
-        updateStatus("Richiesta premio A2U...");
+        updateStatus("Richiesta premio A2U al server...");
         try {
-            // Chiamata pulita senza token utente negli header
-            const res = await fetch("/api/claim", { method: "POST" });
+            const res = await fetch("/api/claim", { 
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ uid: currentUser.uid }) 
+            });
             const data = await res.json();
-            updateStatus("Risposta A2U: " + (data.identifier ? "Creato " + data.identifier : JSON.stringify(data)));
+            
+            if (data.error) {
+                updateStatus("Errore A2U: " + data.error_message);
+            } else {
+                updateStatus("Premio A2U inviato! ID: " + data.identifier);
+            }
         } catch (e) {
-            updateStatus("Errore invio premio.");
+            updateStatus("Errore di rete durante A2U.");
         }
     };
 
-    // --- SBLOCCO SOSPESI ---
+    // --- TASTO SBLOCCO MANUALE ---
     document.getElementById('unlock').onclick = async () => {
-        updateStatus("Verifica pagamenti incompleti...");
+        updateStatus("Controllo coda pagamenti...");
         try {
             const res = await fetch("/api/incomplete", { method: "POST" });
             const data = await res.json();
             
-            if (data.incomplete_payments && data.incomplete_payments.length > 0) {
-                const p = data.incomplete_payments[0];
-                updateStatus("Sblocco in corso: " + p.identifier);
-                await handleComplete(p.identifier, p.transaction ? p.transaction.txid : null);
-                updateStatus("Sblocco completato!");
+            // Le API possono restituire un oggetto singolo o un array
+            const list = data.incomplete_payments || (data.identifier ? [data] : []);
+
+            if (list.length > 0) {
+                const p = list[0];
+                updateStatus("Trovato " + p.identifier + ". Analisi...");
+                
+                if (p.transaction && p.transaction.txid) {
+                    await handleComplete(p.identifier, p.transaction.txid);
+                    updateStatus("Pagamento completato forzatamente! ✅");
+                } else {
+                    await handleCancel(p.identifier);
+                    updateStatus("Pagamento vuoto cancellato! ✅");
+                }
             } else {
                 updateStatus("Nessun pagamento sospeso trovato.");
             }
         } catch (e) {
-            updateStatus("Errore controllo sospesi.");
+            updateStatus("Errore sblocco: " + e.message);
         }
     };
 
-    // --- FUNZIONE DI COMPLETAMENTO ---
+    // --- HELPERS BACKEND ---
     async function handleComplete(paymentId, txid) {
-        try {
-            const res = await fetch("/api/complete", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ paymentId, txid })
-            });
-            return await res.json();
-        } catch (e) {
-            console.error("Errore complete:", e);
-        }
+        return await fetch("/api/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentId, txid })
+        }).then(r => r.json());
+    }
+
+    async function handleCancel(paymentId) {
+        return await fetch("/api/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentId })
+        }).then(r => r.json());
     }
 </script>
 
