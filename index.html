@@ -6,38 +6,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://sdk.minepi.com/pi-sdk.js"></script>
   <script>
-    // Inizializzazione SDK Testing Idle
     Pi.init({ version: "2.0", sandbox: true });
   </script>
   <style>
     body { margin: 0; min-height: 100vh; font-family: sans-serif; background: #0d0d14; color: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .app { width: 90%; max-width: 420px; background: #1a1a2e; padding: 30px; border-radius: 20px; border: 1px solid #4a4e69; text-align: center; }
-    button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; transition: background 0.2s; }
+    button { width: 100%; border-radius: 12px; padding: 14px; cursor: pointer; font-weight: 600; margin-top: 15px; border: none; transition: 0.2s; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     #login { background: #6c5ce7; color: #fff; }
     #u2a { background: #e17055; color: #fff; }
     #a2u { background: #00b894; color: #fff; }
-    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; white-space: pre-wrap; word-break: break-all; border: 1px solid #333; }
+    #status { margin-top: 20px; padding: 15px; border-radius: 10px; background: #000; font-family: monospace; font-size: 0.85rem; color: #55efc4; white-space: pre-wrap; word-break: break-all; border: 1px solid #333; min-height: 50px; }
     footer { margin-top: 30px; font-size: 0.8rem; opacity: 0.7; }
-    footer a { color: #6c5ce7; text-decoration: none; margin: 0 10px; }
   </style>
 </head>
 <body>
   <main class="app">
     <h2>Testing Idle</h2>
-    <p>Compliance Mode: Testnet (Beta)</p>
+    <p>Compliance Mode: Testnet</p>
     <button id="login">Accedi con Pi Browser</button>
     <div id="payment-section" style="display:none;">
-      <button id="u2a">Paga 0.1 Test-Pi (U2A)</button>
+      <button id="u2a">Invia 0.1 Test-Pi (U2A)</button>
       <button id="a2u">Ricevi 1.0 Test-Pi (A2U)</button>
     </div>
     <div id="status">Stato: In attesa di login...</div>
   </main>
-
-  <footer>
-    <a href="/privacy.html">Privacy Policy</a> | 
-    <a href="/terms.html">Terms of Service</a>
-  </footer>
 
   <script>
     const loginBtn = document.getElementById("login");
@@ -49,10 +42,10 @@
 
     loginBtn.onclick = async () => {
       try {
-        statusEl.textContent = "Autenticazione in corso...";
+        statusEl.textContent = "Autenticazione...";
         const auth = await Pi.authenticate(["username", "payments", "wallet_address"]);
         piUser = auth.user;
-        statusEl.textContent = `Benvenuto, ${piUser.username}!\nTesting Idle pronto.`;
+        statusEl.textContent = `Benvenuto, ${piUser.username}!`;
         loginBtn.style.display = "none";
         paymentSection.style.display = "block";
       } catch (err) {
@@ -61,41 +54,48 @@
     };
 
     u2aBtn.onclick = async () => {
-      statusEl.textContent = "Inizializzazione Pagamento U2A...";
+      statusEl.textContent = "Verifica flussi pendenti...";
       try {
         await Pi.createPayment({
           amount: 0.1,
-          memo: "Testing Idle U2A Compliance",
-          metadata: { type: "testing-idle-verification" },
+          memo: "Testing Idle U2A Payment",
+          metadata: { type: "u2a_testing_idle" },
         }, {
           onReadyForServerApproval: async (paymentId) => {
-            statusEl.textContent = "Approvazione Server...";
+            statusEl.textContent = "Approvazione server in corso...";
             const res = await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "approve", paymentId })
             });
-            if (!res.ok) throw new Error("Approval fallito");
+            if (!res.ok) {
+                const errorData = await res.json();
+                if(errorData.error === "ongoing_payment_found") {
+                    statusEl.textContent = "Blocco rilevato e rimosso. Clicca di nuovo.";
+                } else {
+                    throw new Error("Errore approvazione");
+                }
+            }
           },
           onReadyForServerCompletion: async (paymentId, txid) => {
-            statusEl.textContent = "Completamento transazione...";
+            statusEl.textContent = "Completamento in corso...";
             await fetch("/api/pi-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "complete", paymentId, txid })
             });
-            statusEl.textContent = "U2A Successo! ✅\nTransazione completata.";
+            statusEl.textContent = "U2A Successo! ✅";
           },
-          onCancel: (paymentId) => { statusEl.textContent = "Pagamento annullato dall'utente."; },
-          onError: (error) => { statusEl.textContent = "Errore SDK: " + error.message; },
+          onCancel: (paymentId) => { statusEl.textContent = "Pagamento annullato."; },
+          onError: (error) => { statusEl.textContent = "Errore: " + error.message; },
         });
       } catch (err) {
-        statusEl.textContent = "Errore Critico: " + err.message;
+        statusEl.textContent = "Errore critico: " + err.message;
       }
     };
 
     a2uBtn.onclick = async () => {
-      statusEl.textContent = "Richiesta A2U (App-to-User)...";
+      statusEl.textContent = "Richiesta A2U (App -> Utente)...";
       try {
         const res = await fetch("/api/a2u", {
           method: "POST",
@@ -103,10 +103,12 @@
           body: JSON.stringify({ uid: piUser.uid, amount: 1 })
         });
         const data = await res.json();
-        statusEl.textContent = res.ok ? `A2U Successo! ✅\nID: ${data.paymentId}` : `Errore A2U: ${data.error}`;
-      } catch (err) { 
-        statusEl.textContent = "Errore di rete durante A2U."; 
-      }
+        if (res.ok) {
+            statusEl.textContent = `A2U Successo! ✅\nTXID: ${data.txid.substring(0,15)}...`;
+        } else {
+            statusEl.textContent = "Errore A2U: " + data.error;
+        }
+      } catch (err) { statusEl.textContent = "Errore di rete."; }
     };
   </script>
 </body>
