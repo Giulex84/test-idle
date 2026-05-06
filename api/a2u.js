@@ -11,21 +11,17 @@ module.exports = async function handler(req, res) {
     let createRes = await fetch(BASE_URL, {
       method: "POST",
       headers: { "Authorization": `Key ${PI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ payment: { amount, memo: "Reward A2U", metadata: { s: "idle" }, uid } }),
+      body: JSON.stringify({ payment: { amount, memo: "A2U Reward", metadata: { s: "idle" }, uid } }),
     });
 
     let data = await createRes.json();
     
     if (data.error === "ongoing_payment_found") {
-      // Forza la cancellazione del vecchio pagamento
       await fetch(`${BASE_URL}/${data.payment.identifier}/cancel`, {
         method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}` }
       });
-      // Aspetta 3 secondi per permettere al server Pi di sincronizzarsi
-      return res.status(409).json({ error: "Sessione pulita. Attendi 3 secondi e clicca di nuovo." });
+      return res.status(409).json({ error: "Sessione pulita. Clicca di nuovo tra 3 secondi." });
     }
-
-    if (!createRes.ok) return res.status(createRes.status).json(data);
 
     const paymentId = data.identifier;
     await fetch(`${BASE_URL}/${paymentId}/approve`, { method: "POST", headers: { "Authorization": `Key ${PI_API_KEY}` } });
