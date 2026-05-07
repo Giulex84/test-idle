@@ -1,64 +1,65 @@
 const StellarSdk = require("@stellar/stellar-sdk");
-const { TransactionBuilder, Operation, Asset, Keypair, Memo } = StellarSdk;
 
 module.exports = async function handler(req, res) {
-  console.log("--- RICHIESTA A2U AVVIATA ---");
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+
   const { uid, amount } = req.body;
-  const PI_API_KEY = process.env.PI_API_KEY;
+  const PI_API_KEY = process.env.PI_API_KEY; // Deve avere "Key ..."
   const APP_SEED = process.env.PI_APP_WALLET_SEED;
   const BASE_URL = "https://api.minepi.com/v2/payments";
 
   try {
-    // 1. Creazione pagamento
+    // 1. Crea pagamento A2U su Pi Server
     const createRes = await fetch(BASE_URL, {
       method: "POST",
-      headers: { "Authorization": `Key ${PI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ payment: { amount, memo: "A2U Test", metadata: { s: "a2u" }, uid } }),
+      headers: { "Authorization": PI_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        payment: { amount: Number(amount), memo: "A2U Test", metadata: { s: "a2u" }, uid } 
+      }),
     });
 
     const data = await createRes.json();
-    if (!createRes.ok) throw new Error(data.error || "Errore creazione pagamento");
-    
-    const paymentId = data.identifier;
-    console.log("Pagamento creato ID:", paymentId);
+    if (!createRes.ok) throw new Error(data.message || data.error || "Errore Pi API");
 
-    // 2. Approvazione
+    const paymentId = data.identifier;
+
+    // 2. Approva pagamento
     await fetch(`${BASE_URL}/${paymentId}/approve`, {
       method: "POST",
-      headers: { "Authorization": `Key ${PI_API_KEY}` }
+      headers: { "Authorization": PI_API_KEY }
     });
 
-    // 3. Blockchain Stellar (Pi Testnet)
+    // 3. Firma Blockchain Stellar
     const server = new StellarSdk.Horizon.Server("https://api.testnet.minepi.com");
-    const keypair = Keypair.fromSecret(APP_SEED);
+    const keypair = StellarSdk.Keypair.fromSecret(APP_SEED);
     const account = await server.loadAccount(keypair.publicKey());
-
-    // CORREZIONE: Usiamo l'ID troncato a 28 caratteri per il memo Stellar
+    
+    // Memo deve essere l'ID pagamento troncato
     const shortMemo = paymentId.substring(0, 28);
 
-    const tx = new TransactionBuilder(account, { fee: "1000000", networkPassphrase: "Pi Testnet" })
-      .addMemo(Memo.text(shortMemo))
-      .addOperation(Operation.payment({ 
+    const tx = new StellarSdk.TransactionBuilder(account, { fee: "1000000", networkPassphrase: "Pi Testnet" })
+      .addMemo(StellarSdk.Memo.text(shortMemo))
+      .addOperation(StellarSdk.Operation.payment({ 
         destination: data.to_address, 
-        asset: Asset.native(), 
+        asset: StellarSdk.Asset.native(), 
         amount: Number(amount).toFixed(7) 
       }))
       .setTimeout(60).build();
 
     tx.sign(keypair);
     const result = await server.submitTransaction(tx);
-    console.log("Transazione inviata: ", result.hash);
 
-    // 4. Completamento
+    // 4. Completa pagamento
     await fetch(`${BASE_URL}/${paymentId}/complete`, {
       method: "POST",
-      headers: { "Authorization": `Key ${PI_API_KEY}`, "Content-Type": "application/json" },
+      headers: { "Authorization": PI_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({ txid: result.hash }),
     });
 
     return res.status(200).json({ success: true, txid: result.hash });
+
   } catch (err) {
-    console.error("ERRORE A2U:", err.message);
+    console.error(err);
     return res.status(500).json({ error: err.message });
   }
 };
