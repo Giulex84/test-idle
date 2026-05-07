@@ -3,39 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giulex Hub - Testing</title>
     <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     <script>Pi.init({ version: "2.0", sandbox: true });</script>
     <style>
-        body { font-family: sans-serif; background: #0d1117; color: white; text-align: center; padding: 20px; }
-        .btn { padding: 15px; margin: 10px; width: 80%; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; color: white; }
-        #status { background: #161b22; padding: 15px; border-radius: 8px; margin-top: 20px; border: 1px solid #30363d; }
+        body { font-family: -apple-system, sans-serif; background: #0d1117; color: white; text-align: center; padding: 20px; }
+        .btn { padding: 15px; margin: 10px; width: 85%; max-width: 300px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; color: white; display: block; margin-left: auto; margin-right: auto; transition: 0.3s; }
+        .btn:active { transform: scale(0.98); }
+        #status { background: #161b22; padding: 15px; border-radius: 8px; margin: 20px auto; border: 1px solid #30363d; max-width: 350px; font-family: monospace; font-size: 0.85em; color: #8b949e; overflow-wrap: break-word; }
+        .footer { margin-top: 50px; font-size: 0.75em; color: #484f58; }
+        .footer a { color: #58a6ff; text-decoration: none; margin: 0 10px; }
     </style>
 </head>
 <body>
     <h2>Giulex Hub Test</h2>
-    <button id="login" class="btn" style="background: #1f6feb;">Accedi</button>
+    <div id="user-display" style="color: #58a6ff; margin-bottom: 15px; font-weight: bold;"></div>
+    
+    <button id="login" class="btn" style="background: #1f6feb;">ACCEDI CON PI WALLET</button>
+    
     <div id="controls" style="display:none;">
-        <button id="u2a" class="btn" style="background: #f78166;">Paga 0.1 Pi (U2A)</button>
-        <button id="a2u" class="btn" style="background: #238636;">Ricevi 1.0 Pi (A2U)</button>
+        <button id="u2a" class="btn" style="background: #f78166;">PAGA 0.1 Pi (U2A)</button>
+        <button id="a2u" class="btn" style="background: #238636;">RICEVI 1.0 Pi (A2U)</button>
     </div>
+
     <div id="status">Stato: In attesa di login...</div>
 
-    <script>
-        const status = document.getElementById("status");
-        let user = null;
+    <div class="footer">
+        <a href="/privacy.html">Privacy Policy</a>
+        <a href="/terms.html">Terms of Service</a>
+        <p>&copy; 2026 Giulex Hub - Pi Network Ecosystem</p>
+    </div>
 
+    <script>
+        const statusDiv = document.getElementById("status");
+        let currentUser = null;
+        let userToken = null;
+
+        const updateStatus = (msg) => { statusDiv.innerText = "Stato: " + msg; };
+
+        // 1. AUTHENTICATION con SCOPES completi per A2U
         document.getElementById("login").onclick = async () => {
             try {
-                const auth = await Pi.authenticate(["username", "payments"], (p) => {});
-                user = auth.user;
-                status.innerText = "Ciao, " + user.username;
+                updateStatus("Autenticazione...");
+                // Aggiungiamo 'wallet_address' per permettere i pagamenti A2U
+                const auth = await Pi.authenticate(["username", "payments", "wallet_address"], (p) => {
+                    console.log("Pagamento incompleto rilevato:", p);
+                });
+                
+                currentUser = auth.user;
+                userToken = auth.accessToken; // Fondamentale per il backend
+                
+                document.getElementById("user-display").innerText = "Benvenuto, " + currentUser.username;
                 document.getElementById("controls").style.display = "block";
                 document.getElementById("login").style.display = "none";
-            } catch (e) { status.innerText = "Errore login: " + e.message; }
+                updateStatus("Login effettuato! ✅");
+            } catch (e) { 
+                updateStatus("Errore Login: " + e.message); 
+            }
         };
 
+        // 2. USER-TO-APP (Paghi tu l'app)
         document.getElementById("u2a").onclick = async () => {
-            status.innerText = "Inizializzazione U2A...";
+            updateStatus("Apertura Wallet per U2A...");
             try {
                 await Pi.createPayment({ amount: 0.1, memo: "Test U2A", metadata: { s: "u" } }, {
                     onReadyForServerApproval: (id) => fetch("/api/pi-payment", {
@@ -46,20 +75,31 @@
                         method: "POST", headers: {"Content-Type": "application/json"},
                         body: JSON.stringify({ action: "complete", paymentId: id, txid: tx })
                     }),
-                    onCancel: () => status.innerText = "Pagamento annullato.",
-                    onError: (e) => status.innerText = "Errore SDK: " + e.message
+                    onCancel: () => updateStatus("U2A annullato."),
+                    onError: (e) => updateStatus("Errore U2A: " + e.message)
                 });
-            } catch (e) { status.innerText = "Errore critico U2A."; }
+            } catch (e) { updateStatus("Errore critico U2A."); }
         };
 
+        // 3. APP-TO-USER (L'app ti invia Pi)
         document.getElementById("a2u").onclick = async () => {
-            status.innerText = "Elaborazione A2U...";
-            const res = await fetch("/api/a2u", {
-                method: "POST", headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({ uid: user.uid, amount: 1 })
-            });
-            const data = await res.json();
-            status.innerText = res.ok ? "Ricevuto! ✅" : "Errore: " + data.error;
+            updateStatus("Richiesta premio A2U...");
+            try {
+                // Passiamo il token nell'URL per bypassare i filtri di Cloudflare
+                const res = await fetch("/api/a2u?token=" + userToken, {
+                    method: "POST", 
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ uid: currentUser.uid, amount: 1.0 })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    updateStatus("A2U Creato! ID: " + (data.identifier || "Successo"));
+                } else {
+                    updateStatus("Errore A2U: " + (data.error || data.message || "Verifica log"));
+                }
+            } catch (e) { 
+                updateStatus("Errore di rete A2U."); 
+            }
         };
     </script>
 </body>
